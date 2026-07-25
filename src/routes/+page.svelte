@@ -4,14 +4,26 @@
 	const dial = createDialKitController(
 		'Wallpaper Dials',
 		{
-			// Main Background Color
-			bgColor: '#C04A0D',
+			// 🎨 MASTER COLOR PALETTE (Relocated to the top for effortless tweaking)
+			colors: {
+				_collapsed: false,
+				bgColor: '#C04A0D',
+				gridColor: '#ffffff',
+				crossColor: '#ffffff',
+				badgeBgColor: '#C04A0D',
+				badgeTextColor: '#ffffff',
+				badgeBorderColor: '#ffffff',
+				vignetteColor: '#000000',
+				burstColor: '#ffffff',
+				circlesColor: '#ffffff',
+				godRaysColor: '#000000',
+				glowColor: '#FF8C00'
+			},
 
 			// Grid Controls
 			grid: {
 				_collapsed: true,
 				show: true,
-				color: '#ffffff',
 				size: [60, 10, 300, 5],
 				lineWidth: [1, 0.5, 10, 0.5],
 				opacity: [0.1, 0, 1, 0.05],
@@ -29,7 +41,6 @@
 			cross: {
 				_collapsed: true,
 				show: true,
-				color: '#ffffff',
 				opacity: [0.35, 0, 1, 0.05],
 				size: [10, 4, 60, 2],
 				thickness: [1, 1, 8, 1]
@@ -40,8 +51,6 @@
 				_collapsed: true,
 				show: true,
 				text: 'Free Computer.',
-				bgColor: '#C04A0D',
-				textColor: '#ffffff',
 				opacity: [1, 0, 1, 0.05],
 				gridX: [12, 0, 30, 1],
 				gridY: [8, 0, 20, 1],
@@ -77,15 +86,13 @@
 					],
 					default: 'center'
 				},
-				borderWidth: [0, 0, 10, 1],
-				borderColor: '#ffffff'
+				borderWidth: [0, 0, 10, 1]
 			},
 
 			// Dedicated Cinematic Vignette Effect
 			vignette: {
 				_collapsed: true,
 				show: true,
-				color: '#000000',
 				opacity: [0.25, 0, 1, 0.05],
 				coverage: [35, 10, 90, 5],
 				softness: [100, 10, 100, 5],
@@ -105,7 +112,6 @@
 			burstBottomLeft: {
 				_collapsed: true,
 				show: false,
-				color: '#ffffff',
 				opacity: [0.35, 0, 1, 0.05],
 				count: [4, 0, 100, 1],
 				thickness: [1, 0.5, 10, 0.5],
@@ -127,7 +133,6 @@
 			burstBottomRight: {
 				_collapsed: true,
 				show: false,
-				color: '#ffffff',
 				opacity: [0.35, 0, 1, 0.05],
 				count: [4, 0, 100, 1],
 				thickness: [1, 0.5, 10, 0.5],
@@ -149,7 +154,6 @@
 			burstTopLeft: {
 				_collapsed: true,
 				show: false,
-				color: '#ffffff',
 				opacity: [0.35, 0, 1, 0.05],
 				count: [4, 0, 100, 1],
 				thickness: [1, 0.5, 10, 0.5],
@@ -171,7 +175,6 @@
 			burstTopRight: {
 				_collapsed: true,
 				show: false,
-				color: '#ffffff',
 				opacity: [0.35, 0, 1, 0.05],
 				count: [3, 0, 100, 1],
 				thickness: [1, 0.5, 10, 0.5],
@@ -193,7 +196,6 @@
 			randomCircles: {
 				_collapsed: true,
 				show: true,
-				color: '#ffffff',
 				opacity: [0.35, 0, 1, 0.05],
 				count: [6, 0, 50, 1],
 				minRadius: [25, 5, 200, 5],
@@ -216,7 +218,6 @@
 			godRays: {
 				_collapsed: true,
 				show: true,
-				color: '#000000',
 				opacity: [0.25, 0, 1, 0.05],
 				blur: [25, 0, 100, 5],
 				angle: [65, 0, 180, 5],
@@ -273,7 +274,6 @@
 			effects: {
 				_collapsed: true,
 				enableRadialGlow: false,
-				glowColor: '#FF8C00',
 				glowOpacity: [0.35, 0, 1, 0.05]
 			},
 
@@ -284,7 +284,7 @@
 			}
 		},
 		{
-			id: 'wallpaper-dialkit-config-v36',
+			id: 'wallpaper-dialkit-config-v38',
 			persist: true,
 			onAction: (action) => {
 				if (action === 'resetAction') {
@@ -307,12 +307,12 @@
 
 	const MAX_ANGLE = 85;
 
-	// Reactive linkage: when main bgColor changes, update textBadge.bgColor via dial.setValue()
-	let prevBgColor = $state(dial.values.bgColor);
+	// Reactive linkage: when main colors.bgColor changes, update colors.badgeBgColor via dial.setValue()
+	let prevBgColor = $state(dial.values.colors.bgColor);
 	$effect(() => {
-		const currentBg = dial.values.bgColor;
+		const currentBg = dial.values.colors.bgColor;
 		if (currentBg !== prevBgColor) {
-			dial.setValue('textBadge.bgColor', currentBg);
+			dial.setValue('colors.badgeBgColor', currentBg);
 			prevBgColor = currentBg;
 		}
 	});
@@ -496,7 +496,7 @@
 
 <div
 	class="wallpaper-container"
-	style:background-color={params.bgColor}
+	style:background-color={params.colors.bgColor}
 >
 	<!-- Shared SVG Interior Mask: Inset by exact half cross length so edge/corner cross arms render 100% UNCLIPPED -->
 	<svg width="0" height="0" style="position: absolute;">
@@ -526,7 +526,7 @@
 						y1="0"
 						x2={ray.x2}
 						y2={ray.y2}
-						stroke={hexToRgba(params.burstBottomLeft.color, params.burstBottomLeft.opacity)}
+						stroke={hexToRgba(params.colors.burstColor, params.burstBottomLeft.opacity)}
 						stroke-width={params.burstBottomLeft.thickness}
 						stroke-dasharray={ray.dashArray}
 						stroke-linecap="round"
@@ -545,7 +545,7 @@
 						y1="0"
 						x2={ray.x2}
 						y2={ray.y2}
-						stroke={hexToRgba(params.burstBottomRight.color, params.burstBottomRight.opacity)}
+						stroke={hexToRgba(params.colors.burstColor, params.burstBottomRight.opacity)}
 						stroke-width={params.burstBottomRight.thickness}
 						stroke-dasharray={ray.dashArray}
 						stroke-linecap="round"
@@ -564,7 +564,7 @@
 						y1="0"
 						x2={ray.x2}
 						y2={ray.y2}
-						stroke={hexToRgba(params.burstTopLeft.color, params.burstTopLeft.opacity)}
+						stroke={hexToRgba(params.colors.burstColor, params.burstTopLeft.opacity)}
 						stroke-width={params.burstTopLeft.thickness}
 						stroke-dasharray={ray.dashArray}
 						stroke-linecap="round"
@@ -583,7 +583,7 @@
 						y1="0"
 						x2={ray.x2}
 						y2={ray.y2}
-						stroke={hexToRgba(params.burstTopRight.color, params.burstTopRight.opacity)}
+						stroke={hexToRgba(params.colors.burstColor, params.burstTopRight.opacity)}
 						stroke-width={params.burstTopRight.thickness}
 						stroke-dasharray={ray.dashArray}
 						stroke-linecap="round"
@@ -604,7 +604,7 @@
 							cy="0"
 							r={c.r}
 							fill="none"
-							stroke={hexToRgba(params.randomCircles.color, params.randomCircles.opacity)}
+							stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)}
 							stroke-width={params.randomCircles.thickness}
 						/>
 					{:else if c.renderMode === 'dashed'}
@@ -613,7 +613,7 @@
 							cy="0"
 							r={c.r}
 							fill="none"
-							stroke={hexToRgba(params.randomCircles.color, params.randomCircles.opacity)}
+							stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)}
 							stroke-width={params.randomCircles.thickness}
 							stroke-dasharray={c.dashArray}
 						/>
@@ -621,14 +621,14 @@
 						<path
 							d={c.solidPath}
 							fill="none"
-							stroke={hexToRgba(params.randomCircles.color, params.randomCircles.opacity)}
+							stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)}
 							stroke-width={params.randomCircles.thickness}
 							stroke-linecap="round"
 						/>
 						<path
 							d={c.dashedPath}
 							fill="none"
-							stroke={hexToRgba(params.randomCircles.color, params.randomCircles.opacity)}
+							stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)}
 							stroke-width={params.randomCircles.thickness}
 							stroke-dasharray={c.dashArray}
 							stroke-linecap="round"
@@ -639,18 +639,7 @@
 		</svg>
 	{/if}
 
-	<!-- LAYER 3 (z-index 40): Radial Glow -->
-	{#if params.effects.enableRadialGlow}
-		<div
-			class="layer glow"
-			style:background="radial-gradient(circle at 50% 50%, {hexToRgba(
-				params.effects.glowColor,
-				params.effects.glowOpacity
-			)} 0%, transparent 70%)"
-		></div>
-	{/if}
-
-	<!-- LAYER 4 (z-index 70): Typographic Grid-Snapped Text Badge ("Free Computer.") -->
+	<!-- LAYER 3 (z-index 70): Typographic Grid-Snapped Text Badge ("Free Computer.") -->
 	{#if params.textBadge.show}
 		<div
 			class="layer text-badge-layer"
@@ -658,9 +647,9 @@
 			style:top="{params.textBadge.gridY * params.grid.size}px"
 			style:width="{params.textBadge.spanGridWidth * params.grid.size}px"
 			style:height="{params.textBadge.spanGridHeight * params.grid.size}px"
-			style:background-color={hexToRgba(params.textBadge.bgColor, params.textBadge.opacity)}
-			style:color={params.textBadge.textColor}
-			style:border="{params.textBadge.borderWidth}px solid {params.textBadge.borderColor}"
+			style:background-color={hexToRgba(params.colors.badgeBgColor, params.textBadge.opacity)}
+			style:color={params.colors.badgeTextColor}
+			style:border="{params.textBadge.borderWidth}px solid {params.colors.badgeBorderColor}"
 			style:border-radius="0px"
 			style:font-size="{params.textBadge.fontSize}px"
 			style:font-weight={params.textBadge.fontWeight}
@@ -678,7 +667,7 @@
 		</div>
 	{/if}
 
-	<!-- LAYER 5 (z-index 80): Base Grid Lines (Rendered ON TOP of badge borders, interior masked out!) -->
+	<!-- LAYER 4 (z-index 80): Base Grid Lines (Rendered ON TOP of badge borders, interior masked out!) -->
 	<svg class="layer grid-svg" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
 		<defs>
 			<pattern
@@ -697,7 +686,7 @@
 							y1="0"
 							x2={params.grid.size}
 							y2="0"
-							stroke={hexToRgba(params.grid.color, params.grid.opacity)}
+							stroke={hexToRgba(params.colors.gridColor, params.grid.opacity)}
 							stroke-width={params.grid.lineWidth}
 						/>
 						<!-- Vertical Grid Line at left origin x=0 -->
@@ -706,7 +695,7 @@
 							y1="0"
 							x2="0"
 							y2={params.grid.size}
-							stroke={hexToRgba(params.grid.color, params.grid.opacity)}
+							stroke={hexToRgba(params.colors.gridColor, params.grid.opacity)}
 							stroke-width={params.grid.lineWidth}
 						/>
 					{:else if params.grid.type === 'dots'}
@@ -714,7 +703,7 @@
 							cx="0"
 							cy="0"
 							r={params.grid.lineWidth}
-							fill={hexToRgba(params.grid.color, params.grid.opacity)}
+							fill={hexToRgba(params.colors.gridColor, params.grid.opacity)}
 						/>
 					{/if}
 				{/if}
@@ -723,7 +712,7 @@
 		<rect width="100%" height="100%" fill="url(#grid-pattern)" mask="url(#badge-interior-mask)" />
 	</svg>
 
-	<!-- LAYER 6 (z-index 85): Plus (+) Cross Markers (Rendered ON TOP of badge borders, interior masked out!) -->
+	<!-- LAYER 5 (z-index 85): Plus (+) Cross Markers (Rendered ON TOP of badge borders, interior masked out!) -->
 	{#if params.cross.show}
 		<svg class="layer cross-svg" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
 			<defs>
@@ -742,7 +731,7 @@
 						y1={cy}
 						x2={cx + half}
 						y2={cy}
-						stroke={hexToRgba(params.cross.color, params.cross.opacity)}
+						stroke={hexToRgba(params.colors.crossColor, params.cross.opacity)}
 						stroke-width={params.cross.thickness}
 						stroke-linecap="square"
 					/>
@@ -752,7 +741,7 @@
 						y1={cy - half}
 						x2={cx}
 						y2={cy + half}
-						stroke={hexToRgba(params.cross.color, params.cross.opacity)}
+						stroke={hexToRgba(params.colors.crossColor, params.cross.opacity)}
 						stroke-width={params.cross.thickness}
 						stroke-linecap="square"
 					/>
@@ -762,13 +751,24 @@
 		</svg>
 	{/if}
 
-	<!-- LAYER 7 (z-index 88): Dedicated Cinematic Vignette Layer (Rendered OVER text badge & background!) -->
+	<!-- LAYER 6 (z-index 86): Radial Glow (Rendered OVER text badge, background, grid, and crosses!) -->
+	{#if params.effects.enableRadialGlow}
+		<div
+			class="layer glow"
+			style:background="radial-gradient(circle at 50% 50%, {hexToRgba(
+				params.colors.glowColor,
+				params.effects.glowOpacity
+			)} 0%, transparent 70%)"
+		></div>
+	{/if}
+
+	<!-- LAYER 7 (z-index 88): Dedicated Cinematic Vignette Layer -->
 	{#if params.vignette.show}
 		<div
 			class="layer vignette-layer"
 			style:mix-blend-mode={params.vignette.blendMode}
 			style:background="radial-gradient(ellipse at 50% 50%, transparent {params.vignette.coverage}%, {hexToRgba(
-				params.vignette.color,
+				params.colors.vignetteColor,
 				params.vignette.opacity
 			)} {params.vignette.coverage + params.vignette.softness}%)"
 		></div>
@@ -783,48 +783,48 @@
 			style:background-image="
 				repeating-linear-gradient(
 					{params.godRays.angle}deg,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 0%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 2.3%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 0%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 2.3%,
 					transparent 4.1%,
 					transparent 9.7%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 11.2%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 17.5%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 11.2%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 17.5%,
 					transparent 21.8%,
 					transparent 24.1%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 31.4%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 32.8%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 31.4%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 32.8%,
 					transparent 39.2%,
 					transparent 44.5%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 48.1%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 57.3%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 48.1%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 57.3%,
 					transparent 63.9%,
 					transparent 69.1%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 74.2%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 78.6%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 74.2%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 78.6%,
 					transparent 85.3%,
 					transparent 92.1%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity)} 96.4%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 96.4%,
 					transparent 100%
 				),
 				repeating-linear-gradient(
 					{params.godRays.angle + 7}deg,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 0%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 1.1%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 0%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 1.1%,
 					transparent 6.3%,
 					transparent 12.4%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 15.8%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 19.2%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 15.8%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 19.2%,
 					transparent 28.5%,
 					transparent 33.1%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 41.7%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 45.2%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 41.7%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 45.2%,
 					transparent 52.6%,
 					transparent 61.3%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 68.9%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 71.4%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 68.9%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 71.4%,
 					transparent 81.2%,
 					transparent 89.6%,
-					{hexToRgba(params.godRays.color, params.godRays.opacity * 0.7)} 93.7%,
+					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 93.7%,
 					transparent 100%
 				)
 			"
@@ -895,10 +895,6 @@
 		z-index: 30;
 	}
 
-	.glow {
-		z-index: 40;
-	}
-
 	.text-badge-layer {
 		z-index: 70;
 	}
@@ -909,6 +905,10 @@
 
 	.cross-svg {
 		z-index: 85;
+	}
+
+	.glow {
+		z-index: 86;
 	}
 
 	.vignette-layer {

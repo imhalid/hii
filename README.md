@@ -6,7 +6,17 @@ An interactive, generative wallpaper engine and Swiss-style typographic grid can
 
 ---
 
+## 💡 Inspiration
+
+Inspired by [@dannyacevedoooo's generative design on X (Twitter)](https://x.com/dannyacevedoooo/status/2081013926364397920).
+
+---
+
 ## ✨ Features
+
+- **🎨 Unified Master Color Palette**:
+  - All color controls relocated to a dedicated, open-by-default **`colors`** folder at the top of the DialKit panel.
+  - Effortless live palette swapping (`bgColor`, `gridColor`, `crossColor`, `badgeBgColor`, `badgeTextColor`, `badgeBorderColor`, `vignetteColor`, `burstColor`, `circlesColor`, `godRaysColor`, `glowColor`).
 
 - **🏷️ Swiss Typographic Grid Badge (`textBadge`)**:
   - Snaps flush to integer grid line intersections (e.g. `6x2` or `2x3` grid cell bounds).
@@ -24,14 +34,14 @@ An interactive, generative wallpaper engine and Swiss-style typographic grid can
 
 - **💥 4 Corner Vector Burst Rays**:
   - Independent corner burst controllers (`burstBottomLeft`, `burstBottomRight`, `burstTopLeft`, `burstTopRight`).
-  - Seed-driven non-uniform random gap distribution ($w_i$) and style type selections (`mix`, `dashed`, `solid`).
+  - Seed-driven dynamic boundary angles and non-uniform random gap distribution ($w_i$).
 
 - **🎬 Cinematic Vignette & SVG Film Grain Noise**:
   - Custom radial vignette overlay with coverage, softness, opacity, and CSS mix-blend-mode controls.
   - Topmost SVG turbulence & fractal noise overlay for organic film grain texture.
 
 - **🎛️ Live DialKit Controller**:
-  - Foldered, collapsed-by-default parameters for tweaking all visual properties in real time.
+  - Topmost master color palette and foldered visual controls for real-time adjustments.
   - Persistence enabled with a **🔄 Reset to Defaults** action button.
 
 ---
