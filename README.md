@@ -1,65 +1,79 @@
-# Svelte library
+# 🎨 Wallpaper Dials
 
-Everything you need to build a Svelte library, powered by [`sv`](https://npmjs.com/package/sv).
+An interactive, generative wallpaper engine and Swiss-style typographic grid canvas built with **Svelte 5** and **DialKit**.
 
-Read more about creating a library [in the docs](https://svelte.dev/docs/kit/packaging).
+![Wallpaper Dials Preview](https://raw.githubusercontent.com/imhalid/hii/main/static/favicon.svg)
 
-## Creating a project
+---
 
-If you're seeing this, you've probably already done this step. Congrats!
+## ✨ Features
 
-```sh
-# create a new project in the current directory
-npx sv create
+- **🏷️ Swiss Typographic Grid Badge (`textBadge`)**:
+  - Snaps flush to integer grid line intersections (e.g. `6x2` or `2x3` grid cell bounds).
+  - Sharp 90° corners with zero border-radius for an authentic editorial design aesthetic.
+  - Custom typography selection with Google Fonts (**Georgia**, **Space Grotesk**, **Inter**, **JetBrains Mono**).
+  - **Reactive Color Sync**: Automatically matches the main wallpaper background color (`bgColor`), with option for custom color overrides.
 
-# create a new project in my-app
-npx sv create my-app
+- **📐 Smart SVG Interior Masking & Grid Geometry**:
+  - Symmetric 4-arm plus (`+`) cross markers centered at every grid line intersection.
+  - Smart SVG masking keeps grid lines and cross markers on the outer borders of the badge **100% visible and unclipped**, while masking out interior lines inside the badge text area.
+
+- **⭕ 100% Perfect Circle Arc Geometry**:
+  - Vector circles with guaranteed non-distorted aspect ratios across all monitor resolutions.
+  - Controlled probability distribution (~25% hybrid solid/dashed arc segments, ~40% pure solid, ~35% pure dashed).
+
+- **💥 4 Corner Vector Burst Rays**:
+  - Independent corner burst controllers (`burstBottomLeft`, `burstBottomRight`, `burstTopLeft`, `burstTopRight`).
+  - Seed-driven non-uniform random gap distribution ($w_i$) and style type selections (`mix`, `dashed`, `solid`).
+
+- **🎬 Cinematic Vignette & SVG Film Grain Noise**:
+  - Custom radial vignette overlay with coverage, softness, opacity, and CSS mix-blend-mode controls.
+  - Topmost SVG turbulence & fractal noise overlay for organic film grain texture.
+
+- **🎛️ Live DialKit Controller**:
+  - Foldered, collapsed-by-default parameters for tweaking all visual properties in real time.
+  - Persistence enabled with a **🔄 Reset to Defaults** action button.
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+Make sure you have [Node.js](https://nodejs.org/) (v18+) and [pnpm](https://pnpm.io/) installed.
+
+### Installation
+
+```bash
+# Clone the repository
+git clone git@github.com:imhalid/hii.git
+cd hii
+
+# Install dependencies
+pnpm install
 ```
 
-To recreate this project with the same configuration:
+### Development
 
-```sh
-# recreate this project
-pnpm dlx sv@0.16.6 create --template library --types ts --add tailwindcss="plugins:none" --install pnpm myapp
+Start the local development server:
+
+```bash
+pnpm dev
 ```
 
-## Developing
+Open [http://localhost:5173](http://localhost:5173) in your browser to view and interact with the wallpaper canvas and DialKit panel.
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+---
 
-```sh
-npm run dev
+## 🛠️ Built With
 
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
+- **[Svelte 5](https://svelte.dev)** — Runes (`$state`, `$derived`, `$effect`) & reactive rendering
+- **[DialKit](https://dialkit.dev)** — Real-time interactive UI controls & parameter persistence
+- **[TailwindCSS v4](https://tailwindcss.com)** — Utility styling
+- **[Vite](https://vitejs.dev)** — Next-generation frontend build tooling
 
-Everything inside `src/lib` is part of your library, everything inside `src/routes` can be used as a showcase or preview app.
+---
 
-## Building
+## 📄 License
 
-To build your library:
-
-```sh
-npm pack
-```
-
-To create a production version of your showcase app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
-
-## Publishing
-
-Go into the `package.json` and give your package the desired name through the `"name"` option. Also consider adding a `"license"` field and point it to a `LICENSE` file which you can create from a template (one popular option is the [MIT license](https://opensource.org/license/mit/)).
-
-To publish your library to [npm](https://www.npmjs.com):
-
-```sh
-npm publish
-```
+MIT © [imhalid](https://github.com/imhalid)
