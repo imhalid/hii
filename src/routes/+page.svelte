@@ -52,10 +52,10 @@
 				show: true,
 				text: 'Free Computer.',
 				opacity: [1, 0, 1, 0.05],
-				gridX: [12, 0, 30, 1],
-				gridY: [8, 0, 20, 1],
-				spanGridWidth: [6, 1, 10, 1],
-				spanGridHeight: [2, 1, 10, 1],
+				gridX: [12, -200, 200, 1],
+				gridY: [8, -200, 200, 1],
+				spanGridWidth: [6, 1, 30, 1],
+				spanGridHeight: [2, 1, 30, 1],
 				fontSize: [29, 10, 72, 1],
 				fontWeight: {
 					type: 'select',
@@ -284,10 +284,11 @@
 			}
 		},
 		{
-			id: 'wallpaper-dialkit-config-v47',
+			id: 'wallpaper-dialkit-config-v49',
 			persist: true,
 			onAction: (action) => {
 				if (action === 'resetAction') {
+					gridPan = { x: 0, y: 0 };
 					circleOverrides = {};
 					burstLineOverrides = {
 						burstBottomLeft: {},
@@ -311,6 +312,9 @@
 	const cx = $derived(params.grid.size / 2);
 	const cy = $derived(params.grid.size / 2);
 	const half = $derived(params.cross.size / 2);
+
+	// Infinite Canvas Pan Offset State (grid & cross markers)
+	let gridPan = $state({ x: 0, y: 0 });
 
 	// Independent per-circle position offsets and radius deltas state map
 	let circleOverrides = $state<Record<number, { offsetX: number; offsetY: number; rDelta: number }>>({});
@@ -568,7 +572,7 @@
 	}
 
 	// --------------------------------------------------------------------------
-	// INTERACTIVE CANVAS UX DRAG, RESIZE & ROTATE HANDLERS
+	// INTERACTIVE CANVAS UX DRAG, RESIZE, ROTATE & INFINITE UNBOUNDED GRID PAN HANDLERS
 	// --------------------------------------------------------------------------
 	let selectedElement = $state<string | null>(null);
 	let hoveredCircleIndex = $state<number | null>(null);
@@ -576,7 +580,7 @@
 	let hoveredElement = $state<string | null>(null);
 
 	let isDragging = $state(false);
-	let dragAction = $state<'move' | 'resize' | 'rotate' | null>(null);
+	let dragAction = $state<'move' | 'resize' | 'rotate' | 'panGrid' | null>(null);
 
 	let dragStart = { x: 0, y: 0 };
 	let initialValues: Record<string, number> = {};
@@ -584,7 +588,7 @@
 	function handlePointerDown(
 		e: PointerEvent,
 		elementKey: string,
-		action: 'move' | 'resize' | 'rotate' = 'move'
+		action: 'move' | 'resize' | 'rotate' | 'panGrid' = 'move'
 	) {
 		e.stopPropagation();
 
@@ -593,7 +597,12 @@
 		dragAction = action;
 		dragStart = { x: e.clientX, y: e.clientY };
 
-		if (elementKey === 'textBadge') {
+		if (elementKey === 'canvasGrid') {
+			initialValues = {
+				panX: gridPan.x,
+				panY: gridPan.y
+			};
+		} else if (elementKey === 'textBadge') {
 			initialValues = {
 				gridX: params.textBadge.gridX,
 				gridY: params.textBadge.gridY,
@@ -633,13 +642,19 @@
 		const dy = e.clientY - dragStart.y;
 		const size = params.grid.size || 60;
 
-		if (selectedElement === 'textBadge') {
+		if (selectedElement === 'canvasGrid' && dragAction === 'panGrid') {
+			gridPan = {
+				x: initialValues.panX + dx,
+				y: initialValues.panY + dy
+			};
+		} else if (selectedElement === 'textBadge') {
 			if (dragAction === 'move') {
 				const dGridX = Math.round(dx / size);
 				const dGridY = Math.round(dy / size);
 
-				const newX = Math.max(0, initialValues.gridX + dGridX);
-				const newY = Math.max(0, initialValues.gridY + dGridY);
+				// UNBOUNDED INFINITE CANVAS DRAGGING for text badge
+				const newX = initialValues.gridX + dGridX;
+				const newY = initialValues.gridY + dGridY;
 
 				if (newX !== params.textBadge.gridX) dial.setValue('textBadge.gridX', newX);
 				if (newY !== params.textBadge.gridY) dial.setValue('textBadge.gridY', newY);
@@ -713,7 +728,7 @@
 	}
 
 	function handleCanvasBackgroundPointerDown(e: PointerEvent) {
-		selectedElement = null;
+		handlePointerDown(e, 'canvasGrid', 'panGrid');
 		hoveredCircleIndex = null;
 		hoveredBurstKey = null;
 		hoveredElement = null;
@@ -725,6 +740,7 @@
 
 <div
 	class="wallpaper-container"
+	class:panning={isDragging && dragAction === 'panGrid'}
 	style:background-color={params.colors.bgColor}
 	onpointerdown={handleCanvasBackgroundPointerDown}
 >
@@ -735,8 +751,8 @@
 				<rect width="100vw" height="100vh" fill="white" />
 				{#if params.textBadge.show && (params.textBadge.spanGridWidth > 1 || params.textBadge.spanGridHeight > 1)}
 					<rect
-						x={params.textBadge.gridX * params.grid.size + half}
-						y={params.textBadge.gridY * params.grid.size + half}
+						x={gridPan.x + params.textBadge.gridX * params.grid.size + half}
+						y={gridPan.y + params.textBadge.gridY * params.grid.size + half}
 						width={params.textBadge.spanGridWidth * params.grid.size - 2 * half}
 						height={params.textBadge.spanGridHeight * params.grid.size - 2 * half}
 						fill="black"
@@ -880,8 +896,8 @@
 			class="layer text-badge-layer interactive-badge"
 			class:selected={selectedElement === 'textBadge'}
 			class:hovered={hoveredElement === 'textBadge'}
-			style:left="{params.textBadge.gridX * params.grid.size}px"
-			style:top="{params.textBadge.gridY * params.grid.size}px"
+			style:left="{gridPan.x + params.textBadge.gridX * params.grid.size}px"
+			style:top="{gridPan.y + params.textBadge.gridY * params.grid.size}px"
 			style:width="{params.textBadge.spanGridWidth * params.grid.size}px"
 			style:height="{params.textBadge.spanGridHeight * params.grid.size}px"
 			style:background-color={hexToRgba(params.colors.badgeBgColor, params.textBadge.opacity)}
@@ -926,13 +942,13 @@
 		</div>
 	{/if}
 
-	<!-- LAYER 4 (z-index 80): Base Grid Lines -->
+	<!-- LAYER 4 (z-index 80): Base Grid Lines (Infinite Canvas Panning via gridPan) -->
 	<svg class="layer grid-svg passthrough-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
 		<defs>
 			<pattern
 				id="grid-pattern"
-				x="0"
-				y="0"
+				x={gridPan.x}
+				y={gridPan.y}
 				width={params.grid.size}
 				height={params.grid.size}
 				patternUnits="userSpaceOnUse"
@@ -971,15 +987,15 @@
 		<rect width="100%" height="100%" fill="url(#grid-pattern)" mask="url(#badge-interior-mask)" />
 	</svg>
 
-	<!-- LAYER 5 (z-index 85): Plus (+) Cross Markers -->
+	<!-- LAYER 5 (z-index 85): Plus (+) Cross Markers (Infinite Canvas Panning via gridPan) -->
 	{#if params.cross.show}
 		<svg class="layer cross-svg passthrough-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
 			<defs>
-				<!-- Shift pattern tile by (-cx, -cy) so (cx, cy) lands EXACTLY on (0,0), (60,60) with full symmetric 4-arm cross -->
+				<!-- Shift pattern tile by (gridPan.x - cx, gridPan.y - cy) so (cx, cy) lands EXACTLY on symmetric grid intersections -->
 				<pattern
 					id="cross-pattern"
-					x={-cx}
-					y={-cy}
+					x={gridPan.x - cx}
+					y={gridPan.y - cy}
 					width={params.grid.size}
 					height={params.grid.size}
 					patternUnits="userSpaceOnUse"
@@ -1487,6 +1503,11 @@
 		overflow: hidden;
 		transition: background-color 0.15s ease;
 		user-select: none;
+		cursor: grab;
+	}
+
+	.wallpaper-container.panning {
+		cursor: grabbing;
 	}
 
 	.layer {
