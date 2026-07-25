@@ -284,7 +284,7 @@
 			}
 		},
 		{
-			id: 'wallpaper-dialkit-config-v38',
+			id: 'wallpaper-dialkit-config-v39',
 			persist: true,
 			onAction: (action) => {
 				if (action === 'resetAction') {
@@ -307,12 +307,35 @@
 
 	const MAX_ANGLE = 85;
 
-	// Reactive linkage: when main colors.bgColor changes, update colors.badgeBgColor via dial.setValue()
+	// Calculate perceptual luminance of hex background color
+	function getLuminance(hex: string): number {
+		if (!hex) return 0;
+		let c = hex.replace('#', '');
+		if (c.length === 3) c = c.split('').map((x) => x + x).join('');
+		const num = parseInt(c, 16);
+		if (isNaN(num)) return 0;
+		const r = (num >> 16) & 255;
+		const g = (num >> 8) & 255;
+		const b = num & 255;
+		return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+	}
+
+	// Adaptive Color Linkage: when main colors.bgColor changes, adapt text, grid, cross, burst & circle colors for optimal accessibility contrast
 	let prevBgColor = $state(dial.values.colors.bgColor);
 	$effect(() => {
 		const currentBg = dial.values.colors.bgColor;
 		if (currentBg !== prevBgColor) {
+			const isLight = getLuminance(currentBg) > 0.55;
+			const targetFg = isLight ? '#18181b' : '#ffffff';
+
 			dial.setValue('colors.badgeBgColor', currentBg);
+			dial.setValue('colors.gridColor', targetFg);
+			dial.setValue('colors.crossColor', targetFg);
+			dial.setValue('colors.badgeTextColor', targetFg);
+			dial.setValue('colors.badgeBorderColor', targetFg);
+			dial.setValue('colors.burstColor', targetFg);
+			dial.setValue('colors.circlesColor', targetFg);
+
 			prevBgColor = currentBg;
 		}
 	});
