@@ -7,10 +7,10 @@
 			// 🎨 MASTER COLOR PALETTE (Relocated to the top for effortless tweaking)
 			colors: {
 				_collapsed: false,
-				bgColor: '#C04A0D',
+				bgColor: '#1f3f60',
 				gridColor: '#ffffff',
 				crossColor: '#ffffff',
-				badgeBgColor: '#C04A0D',
+				badgeBgColor: '#1f3f60',
 				badgeTextColor: '#ffffff',
 				badgeBorderColor: '#ffffff',
 				vignetteColor: '#000000',
@@ -284,7 +284,7 @@
 			}
 		},
 		{
-			id: 'wallpaper-dialkit-config-v39',
+			id: 'wallpaper-dialkit-config-v40',
 			persist: true,
 			onAction: (action) => {
 				if (action === 'resetAction') {
