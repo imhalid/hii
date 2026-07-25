@@ -284,7 +284,7 @@
 			}
 		},
 		{
-			id: 'wallpaper-dialkit-config-v35',
+			id: 'wallpaper-dialkit-config-v36',
 			persist: true,
 			onAction: (action) => {
 				if (action === 'resetAction') {
@@ -317,7 +317,7 @@
 		}
 	});
 
-	// Universal corner ray generator helper
+	// Universal corner ray generator helper with seed-driven dynamic initial & intermediate gaps
 	function generateCornerRays(
 		config: {
 			show: boolean;
@@ -349,40 +349,22 @@
 			return x - Math.floor(x);
 		}
 
-		if (count === 1) {
-			const angleDeg = minAngle + pseudoRandom(1, 10) * maxArc;
-			const rad = (angleDeg * Math.PI) / 180;
-			const len = 3000;
-			const isDashed = styleType === 'dashed' || (styleType === 'mix' && pseudoRandom(1, 30) > 0.5);
-			lines.push({
-				x2: Math.cos(rad) * len,
-				y2: flipY ? Math.sin(rad) * len : -Math.sin(rad) * len,
-				dashArray: isDashed ? `${dashLen} ${dashLen * 1.2}` : undefined
-			});
-			return lines;
-		}
-
-		// Generate count - 1 random gap weights using seed
+		// Generate count + 1 gap weights (w_0 = initial margin before 1st ray, w_1..w_{count-1} = inner gaps, w_{count} = trailing margin)
 		const weights: number[] = [];
 		let totalWeight = 0;
-		for (let i = 0; i < count - 1; i++) {
+		for (let i = 0; i <= count; i++) {
 			const pr = pseudoRandom(i + 1, 100);
-			const w = Math.pow(pr, 2.2) * 8 + 0.3;
+			const w = Math.pow(pr, 2.2) * 8 + 0.5;
 			weights.push(w);
 			totalWeight += w;
 		}
 
-		const padding = Math.min(2, maxArc / (count * 2));
-		const availableArc = maxArc - padding * 2;
-
-		let currentAngle = minAngle + padding;
+		let accumulatedWeight = weights[0]; // Start ray angles AFTER the dynamic seed-based initial gap (w_0)
 		for (let i = 0; i < count; i++) {
-			if (i > 0) {
-				const gapFraction = weights[i - 1] / totalWeight;
-				currentAngle += gapFraction * availableArc;
-			}
+			const angleFraction = accumulatedWeight / totalWeight;
+			const angleDeg = minAngle + angleFraction * maxArc;
+			const rad = (angleDeg * Math.PI) / 180;
 
-			const rad = (currentAngle * Math.PI) / 180;
 			const lenRand = pseudoRandom(i + 1, 200);
 			const len = 3000 + lenRand * 1000;
 
@@ -402,6 +384,8 @@
 			const dashArray = isDashed ? `${dashLen} ${dashLen * (1 + lenRand * 0.6)}` : undefined;
 
 			lines.push({ x2, y2, dashArray });
+
+			accumulatedWeight += weights[i + 1];
 		}
 
 		return lines;
