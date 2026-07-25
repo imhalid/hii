@@ -1,0 +1,19 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700;900&family=Inter:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700;800&display=swap');
+@import 'tailwindcss';
+
+:root, html, body {
+	margin: 0;
+	padding: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	font-family: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+}
+
+/* 13px margin-bottom for DialKit action buttons */
+.dialkit-button,
+.dialkit-action-button,
+.dialkit-actions-group,
+.dialkit-actions-stack {
+	margin-bottom: 13px !important;
+}
