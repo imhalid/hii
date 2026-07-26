@@ -284,7 +284,7 @@
 			}
 		},
 		{
-			id: 'wallpaper-dialkit-config-v49',
+			id: 'wallpaper-dialkit-config-v50',
 			persist: true,
 			onAction: (action) => {
 				if (action === 'resetAction') {
@@ -339,6 +339,16 @@
 		const b = num & 255;
 		return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 	}
+
+	// Guaranteed High-Contrast Text Color Fallback
+	const badgeTextColor = $derived.by(() => {
+		const fg = params.colors?.badgeTextColor;
+		const bg = params.colors?.badgeBgColor || params.colors?.bgColor || '#1f3f60';
+		if (!fg || (fg && bg && fg.toLowerCase() === bg.toLowerCase())) {
+			return getLuminance(bg) > 0.55 ? '#18181b' : '#ffffff';
+		}
+		return fg;
+	});
 
 	// Adaptive Color Linkage: when main colors.bgColor changes, adapt text, grid, cross, burst & circle colors for optimal accessibility contrast
 	let prevBgColor = $state(dial.values.colors.bgColor);
@@ -410,9 +420,9 @@
 			const angleFraction = accumulatedWeight / totalWeight;
 			const baseAngleDeg = minAngle + angleFraction * maxArc;
 			const baseRad = (baseAngleDeg * Math.PI) / 180;
-			
+
 			const ov = cornerMap[i] || { originX: 0, originY: 0, targetX: 0, targetY: 0 };
-			
+
 			// Pink Dot (Origin)
 			const x1 = 0 + (ov.originX || 0);
 			const y1 = 0 + (ov.originY || 0);
@@ -614,10 +624,10 @@
 			const parts = elementKey.split('-');
 			const cornerKey = parts[1];
 			const index = parseInt(parts[2], 10);
-			
+
 			if (!burstLineOverrides[cornerKey]) burstLineOverrides[cornerKey] = {};
 			const ov = burstLineOverrides[cornerKey][index] || { originX: 0, originY: 0, targetX: 0, targetY: 0 };
-			
+
 			initialValues = {
 				originX: ov.originX || 0,
 				originY: ov.originY || 0,
@@ -739,6 +749,8 @@
 <svelte:window onpointermove={handlePointerMove} onpointerup={handlePointerUp} />
 
 <div
+	role="main"
+	aria-label="Wallpaper canvas"
 	class="wallpaper-container"
 	class:panning={isDragging && dragAction === 'panGrid'}
 	style:background-color={params.colors.bgColor}
@@ -890,10 +902,11 @@
 		</svg>
 	{/if}
 
-	<!-- LAYER 3 (z-index 70): Typographic Grid-Snapped Text Badge ("Free Computer.") -->
+	<!-- LAYER 3 (z-index 0): Typographic Grid-Snapped Text Badge ("Free Computer.") -->
 	{#if params.textBadge.show}
 		<div
-			class="layer text-badge-layer interactive-badge"
+			role="none"
+			class="text-badge-layer interactive-badge"
 			class:selected={selectedElement === 'textBadge'}
 			class:hovered={hoveredElement === 'textBadge'}
 			style:left="{gridPan.x + params.textBadge.gridX * params.grid.size}px"
@@ -901,7 +914,7 @@
 			style:width="{params.textBadge.spanGridWidth * params.grid.size}px"
 			style:height="{params.textBadge.spanGridHeight * params.grid.size}px"
 			style:background-color={hexToRgba(params.colors.badgeBgColor, params.textBadge.opacity)}
-			style:color={params.colors.badgeTextColor}
+			style:color={badgeTextColor}
 			style:border="{params.textBadge.borderWidth}px solid {params.colors.badgeBorderColor}"
 			style:border-radius="0px"
 			style:font-size="{params.textBadge.fontSize}px"
@@ -919,7 +932,7 @@
 			onpointerleave={() => (hoveredElement = null)}
 			onpointerdown={(e) => handlePointerDown(e, 'textBadge', 'move')}
 		>
-			<span>{params.textBadge.text}</span>
+			<span>{params.textBadge.text || 'Free Computer.'}</span>
 
 			<!-- Grid Snap Indicator Label when dragging -->
 			{#if isDragging && selectedElement === 'textBadge'}
@@ -930,6 +943,7 @@
 
 			<!-- Grid Step Resize Handle at Bottom Right -->
 			<div
+				role="none"
 				class="badge-resize-handle"
 				onpointerdown={(e) => handlePointerDown(e, 'textBadge', 'resize')}
 				title="Drag to resize in grid steps"
@@ -1157,6 +1171,7 @@
 				<g style="transform: translate(calc({c.cxPct}vw + {c.offsetX}px), calc({c.cyPct}vh + {c.offsetY}px));">
 					<!-- Invisible Wide Hit Ring for Independent Dragging -->
 					<circle
+						role="none"
 						cx="0"
 						cy="0"
 						r={c.r}
@@ -1172,6 +1187,7 @@
 					<!-- Static Handle Dot & Dashed Guide Line when Hovered or Selected -->
 					{#if hoveredCircleIndex === c.id || selectedElement === `circle-${c.id}`}
 						<circle
+							role="none"
 							cx="0"
 							cy="0"
 							r={c.r + 4}
@@ -1183,6 +1199,7 @@
 						/>
 						<!-- Static Circle Resize Handle Dot at right edge -->
 						<circle
+							role="none"
 							cx={c.r + 4}
 							cy="0"
 							r="6.5"
@@ -1206,6 +1223,7 @@
 				{#each rayBottomLeft as ray}
 					<!-- Wide Invisible Hit Line (24px hit width) -->
 					<line
+						role="none"
 						x1={ray.x1}
 						y1={ray.y1}
 						x2={ray.xFar}
@@ -1245,6 +1263,7 @@
 						/>
 						<!-- Blue Origin Start Dot (Drag to move origin) -->
 						<circle
+							role="none"
 							cx={ray.x1}
 							cy={ray.y1}
 							r="6.5"
@@ -1253,10 +1272,10 @@
 							stroke-width="1.5"
 							class="burst-handle-node"
 							onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomLeft-${ray.id}`, 'move')}
-							title="Drag origin point"
 						/>
 						<!-- Light Blue Target Direction Dot (Line points directly through this target point) -->
 						<circle
+							role="none"
 							cx={ray.x2}
 							cy={ray.y2}
 							r="6"
@@ -1265,7 +1284,6 @@
 							stroke-width="1.5"
 							class="burst-rotate-node"
 							onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomLeft-${ray.id}`, 'rotate')}
-							title="Drag target direction point"
 						/>
 						<!-- Dashed line segment to Target Dot -->
 						<line x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="2 2" style="pointer-events: none;" />
@@ -1280,6 +1298,7 @@
 				{#each rayBottomRight as ray}
 					<!-- Wide Invisible Hit Line -->
 					<line
+						role="none"
 						x1={ray.x1}
 						y1={ray.y1}
 						x2={ray.xFar}
@@ -1315,6 +1334,7 @@
 							style="pointer-events: none;"
 						/>
 						<circle
+							role="none"
 							cx={ray.x1}
 							cy={ray.y1}
 							r="6.5"
@@ -1325,6 +1345,7 @@
 							onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomRight-${ray.id}`, 'move')}
 						/>
 						<circle
+							role="none"
 							cx={ray.x2}
 							cy={ray.y2}
 							r="6"
@@ -1346,6 +1367,7 @@
 				{#each rayTopLeft as ray}
 					<!-- Wide Invisible Hit Line -->
 					<line
+						role="none"
 						x1={ray.x1}
 						y1={ray.y1}
 						x2={ray.xFar}
@@ -1381,6 +1403,7 @@
 							style="pointer-events: none;"
 						/>
 						<circle
+							role="none"
 							cx={ray.x1}
 							cy={ray.y1}
 							r="6.5"
@@ -1391,6 +1414,7 @@
 							onpointerdown={(e) => handlePointerDown(e, `burstline-burstTopLeft-${ray.id}`, 'move')}
 						/>
 						<circle
+							role="none"
 							cx={ray.x2}
 							cy={ray.y2}
 							r="6"
@@ -1412,6 +1436,7 @@
 				{#each rayTopRight as ray}
 					<!-- Wide Invisible Hit Line -->
 					<line
+						role="none"
 						x1={ray.x1}
 						y1={ray.y1}
 						x2={ray.xFar}
@@ -1447,6 +1472,7 @@
 							style="pointer-events: none;"
 						/>
 						<circle
+							role="none"
 							cx={ray.x1}
 							cy={ray.y1}
 							r="6.5"
@@ -1457,6 +1483,7 @@
 							onpointerdown={(e) => handlePointerDown(e, `burstline-burstTopRight-${ray.id}`, 'move')}
 						/>
 						<circle
+							role="none"
 							cx={ray.x2}
 							cy={ray.y2}
 							r="6"
@@ -1527,10 +1554,14 @@
 		pointer-events: none !important;
 	}
 
+	.text-badge-layer {
+		position: absolute;
+		z-index: 0;
+	}
+
 	.interactive-badge {
 		pointer-events: auto !important;
 		cursor: grab;
-		position: absolute;
 		outline: 1px dashed transparent;
 		transition: outline 0.15s ease, box-shadow 0.15s ease;
 	}
