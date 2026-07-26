@@ -47,7 +47,9 @@
 		"svelte"
 	],
 	"dependencies": {
+		"@types/three": "^0.185.1",
 		"dialkit": "^1.4.3",
-		"motion": "^12.42.2"
+		"motion": "^12.42.2",
+		"three": "^0.185.1"
 	}
 }

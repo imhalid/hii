@@ -1,10 +1,17 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
 	import { createDialKitController } from 'dialkit/svelte';
+	import { WallpaperEngine } from '$lib/renderer/WallpaperEngine';
+	import type { WallpaperRenderParams } from '$lib/renderer/types';
+
+	let canvasRef = $state<HTMLCanvasElement | null>(null);
+	let wallpaperEngine = $state<WallpaperEngine | null>(null);
+	let isExporting = $state(false);
 
 	const dial = createDialKitController(
 		'Wallpaper Dials',
 		{
-			// 🎨 MASTER COLOR PALETTE (Relocated to the top for effortless tweaking)
+			// 🎨 MASTER COLOR PALETTE
 			colors: {
 				_collapsed: false,
 				bgColor: '#1f3f60',
@@ -52,8 +59,8 @@
 				show: true,
 				text: 'Free Computer.',
 				opacity: [1, 0, 1, 0.05],
-				gridX: [12, -200, 200, 1],
-				gridY: [8, -200, 200, 1],
+				gridX: [14, -200, 200, 1],
+				gridY: [7, -200, 200, 1],
 				spanGridWidth: [6, 1, 30, 1],
 				spanGridHeight: [2, 1, 30, 1],
 				fontSize: [29, 10, 72, 1],
@@ -111,7 +118,7 @@
 			// 1. Bottom-Left Vector Burst Lines
 			burstBottomLeft: {
 				_collapsed: true,
-				show: false,
+				show: true,
 				opacity: [0.35, 0, 1, 0.05],
 				count: [4, 0, 100, 1],
 				thickness: [1, 0.5, 10, 0.5],
@@ -218,11 +225,12 @@
 			godRays: {
 				_collapsed: true,
 				show: true,
-				opacity: [0.25, 0, 1, 0.05],
-				blur: [25, 0, 100, 5],
+				opacity: [0.35, 0, 1, 0.05],
+				blur: [40, 0, 100, 5],
 				angle: [65, 0, 180, 5],
-				scale: [100, 50, 500, 10],
+				scale: [150, 50, 500, 10],
 				maskCoverage: [100, 20, 100, 5],
+				seed: [1, 0, 100, 1],
 				blendMode: {
 					type: 'select',
 					options: [
@@ -249,10 +257,10 @@
 					default: 'turbulence'
 				},
 				monochrome: false,
-				frequency: [0.35, 0.05, 2.5, 0.05],
-				octaves: [3, 1, 6, 1],
-				seed: [9, 0, 50, 1],
-				opacity: [0.15, 0, 1, 0.01],
+				frequency: [0.85, 0.05, 2.5, 0.05],
+				octaves: [2, 1, 6, 1],
+				seed: [19, 0, 50, 1],
+				opacity: [0.03, 0, 1, 0.01],
 				invert: false,
 				blendMode: {
 					type: 'select',
@@ -270,11 +278,17 @@
 				}
 			},
 
-			// Lighting & Effects
+			// Lighting & Glow Effects
 			effects: {
 				_collapsed: true,
 				enableRadialGlow: false,
 				glowOpacity: [0.35, 0, 1, 0.05]
+			},
+
+			// 📸 Export 4K PNG Action Button (WebGPU / WebGL SDF GPU Engine)
+			exportAction: {
+				type: 'action',
+				label: '📸 Export 4K PNG (WebGPU / WebGL SDF Engine)'
 			},
 
 			// Reset Action Button
@@ -284,10 +298,12 @@
 			}
 		},
 		{
-			id: 'wallpaper-dialkit-config-v50',
+			id: 'wallpaper-dialkit-config-v69',
 			persist: true,
 			onAction: (action) => {
-				if (action === 'resetAction') {
+				if (action === 'exportAction') {
+					export4KGPUWallpaper();
+				} else if (action === 'resetAction') {
 					gridPan = { x: 0, y: 0 };
 					circleOverrides = {};
 					burstLineOverrides = {
@@ -309,17 +325,24 @@
 	);
 
 	const params = $derived(dial.values);
-	const cx = $derived(params.grid.size / 2);
-	const cy = $derived(params.grid.size / 2);
-	const half = $derived(params.cross.size / 2);
 
-	// Infinite Canvas Pan Offset State (grid & cross markers)
+	// Synchronize badgeBgColor with bgColor dynamically when bgColor changes
+	$effect(() => {
+		const bg = params.colors.bgColor;
+		if (bg && bg !== lastBgColor) {
+			lastBgColor = bg;
+			dial.setValue('colors.badgeBgColor', bg);
+		}
+	});
+	let lastBgColor = params.colors.bgColor;
+
+	// Infinite Canvas Pan Offset State
 	let gridPan = $state({ x: 0, y: 0 });
 
-	// Independent per-circle position offsets and radius deltas state map
+	// Circle Overrides Map
 	let circleOverrides = $state<Record<number, { offsetX: number; offsetY: number; rDelta: number }>>({});
 
-	// Independent per-burst-line origin & target direction point offsets map
+	// Burst Line Overrides Map
 	let burstLineOverrides = $state<Record<string, Record<number, { originX: number; originY: number; targetX: number; targetY: number }>>>({
 		burstBottomLeft: {},
 		burstBottomRight: {},
@@ -327,68 +350,109 @@
 		burstTopRight: {}
 	});
 
-	// Calculate perceptual luminance of hex background color
-	function getLuminance(hex: string): number {
-		if (!hex) return 0;
+	function hexToRgba(hex: string, alpha: number): string {
+		if (!hex) return `rgba(0, 0, 0, ${alpha})`;
 		let c = hex.replace('#', '');
 		if (c.length === 3) c = c.split('').map((x) => x + x).join('');
 		const num = parseInt(c, 16);
-		if (isNaN(num)) return 0;
+		if (isNaN(num)) return `rgba(0, 0, 0, ${alpha})`;
 		const r = (num >> 16) & 255;
 		const g = (num >> 8) & 255;
 		const b = num & 255;
-		return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 	}
 
-	// Guaranteed High-Contrast Text Color Fallback
-	const badgeTextColor = $derived.by(() => {
-		const fg = params.colors?.badgeTextColor;
-		const bg = params.colors?.badgeBgColor || params.colors?.bgColor || '#1f3f60';
-		if (!fg || (fg && bg && fg.toLowerCase() === bg.toLowerCase())) {
-			return getLuminance(bg) > 0.55 ? '#18181b' : '#ffffff';
+	function describeArc(cx: number, cy: number, r: number, startAngleDeg: number, endAngleDeg: number) {
+		const a1 = (startAngleDeg * Math.PI) / 180;
+		const a2 = (endAngleDeg * Math.PI) / 180;
+		const x1 = cx + r * Math.cos(a1);
+		const y1 = cy + r * Math.sin(a1);
+		const x2 = cx + r * Math.cos(a2);
+		const y2 = cy + r * Math.sin(a2);
+		const angleDiff = (endAngleDeg - startAngleDeg + 360) % 360;
+		const largeArcFlag = angleDiff > 180 ? 1 : 0;
+		return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArcFlag} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+	}
+
+	// Initialize WebGPU / WebGL WallpaperEngine on Mount
+	onMount(() => {
+		if (canvasRef) {
+			wallpaperEngine = new WallpaperEngine(canvasRef);
+			const handleResize = () => {
+				wallpaperEngine?.resize(window.innerWidth, window.innerHeight);
+			};
+			window.addEventListener('resize', handleResize);
+
+			return () => {
+				window.removeEventListener('resize', handleResize);
+				wallpaperEngine?.dispose();
+			};
 		}
-		return fg;
 	});
 
-	// Adaptive Color Linkage: when main colors.bgColor changes, adapt text, grid, cross, burst & circle colors for optimal accessibility contrast
-	let prevBgColor = $state(dial.values.colors.bgColor);
+	// Synchronize GPU WallpaperEngine render loop whenever DialKit values or grid pan changes
 	$effect(() => {
-		const currentBg = dial.values.colors.bgColor;
-		if (currentBg !== prevBgColor) {
-			const isLight = getLuminance(currentBg) > 0.55;
-			const targetFg = isLight ? '#18181b' : '#ffffff';
+		if (wallpaperEngine) {
+			const renderParams: WallpaperRenderParams = {
+				colors: params.colors,
+				grid: params.grid,
+				cross: params.cross,
+				textBadge: params.textBadge,
+				vignette: params.vignette,
+				godRays: params.godRays,
+				noise: params.noise,
+				effects: params.effects,
+				circles: circleList,
+				rays: {
+					bottomLeft: rayBottomLeft,
+					bottomRight: rayBottomRight,
+					topLeft: rayTopLeft,
+					topRight: rayTopRight
+				},
+				gridPan
+			};
 
-			dial.setValue('colors.badgeBgColor', currentBg);
-			dial.setValue('colors.gridColor', targetFg);
-			dial.setValue('colors.crossColor', targetFg);
-			dial.setValue('colors.badgeTextColor', targetFg);
-			dial.setValue('colors.badgeBorderColor', targetFg);
-			dial.setValue('colors.burstColor', targetFg);
-			dial.setValue('colors.circlesColor', targetFg);
-
-			prevBgColor = currentBg;
+			wallpaperEngine.render(renderParams);
 		}
 	});
 
-	// Universal corner ray generator helper where ray ALWAYS points directly through the target direction point (yellow dot)!
+	// Export 4K PNG matching exact screen aspect ratio & GPU layer stack
+	async function export4KGPUWallpaper() {
+		if (!wallpaperEngine || isExporting) return;
+		isExporting = true;
+
+		try {
+			const screenW = window.innerWidth;
+			const screenH = window.innerHeight;
+			const targetW = 3840;
+			const targetH = Math.round(3840 * (screenH / screenW));
+
+			const blob = await wallpaperEngine.export4K(targetW, targetH);
+			if (blob) {
+				const downloadUrl = URL.createObjectURL(blob);
+				const a = document.createElement('a');
+				a.href = downloadUrl;
+				a.download = `wallpaper-gpu-4k-${Date.now()}.png`;
+				document.body.appendChild(a);
+				a.click();
+				document.body.removeChild(a);
+				URL.revokeObjectURL(downloadUrl);
+			}
+		} catch (err) {
+			console.error('GPU 4K Export Error:', err);
+		} finally {
+			isExporting = false;
+		}
+	}
+
 	function generateCornerRays(
 		cornerKey: string,
-		config: {
-			show: boolean;
-			count: number;
-			thickness: number;
-			opacity: number;
-			seed: number;
-			styleType: string;
-			dashLength: number;
-			originOffset: number;
-		},
+		config: any,
 		startAngleDeg: number,
 		endAngleDeg: number,
 		flipY: boolean = false
 	) {
 		if (!config || !config.show || config.count <= 0) return [];
-
 		const count = config.count;
 		const styleType = config.styleType;
 		const dashLen = config.dashLength;
@@ -403,7 +467,6 @@
 			return x - Math.floor(x);
 		}
 
-		// Generate count + 1 gap weights
 		const weights: number[] = [];
 		let totalWeight = 0;
 		for (let i = 0; i <= count; i++) {
@@ -420,14 +483,11 @@
 			const angleFraction = accumulatedWeight / totalWeight;
 			const baseAngleDeg = minAngle + angleFraction * maxArc;
 			const baseRad = (baseAngleDeg * Math.PI) / 180;
-
+			
 			const ov = cornerMap[i] || { originX: 0, originY: 0, targetX: 0, targetY: 0 };
-
-			// Pink Dot (Origin)
 			const x1 = 0 + (ov.originX || 0);
 			const y1 = 0 + (ov.originY || 0);
 
-			// Target Direction Point (Default 180px along base ray)
 			const defaultDist = 180;
 			const defaultTx = Math.cos(baseRad) * defaultDist;
 			const defaultTy = flipY ? Math.sin(baseRad) * defaultDist : -Math.sin(baseRad) * defaultDist;
@@ -435,11 +495,9 @@
 			const x2 = defaultTx + (ov.targetX || 0);
 			const y2 = defaultTy + (ov.targetY || 0);
 
-			// Ray angle calculated from Origin (x1, y1) to Target Point (x2, y2)
 			const rayAngleRad = Math.atan2(y2 - y1, x2 - x1);
 			const RAY_LENGTH = 4000;
 
-			// Ray extended far endpoint
 			const xFar = x1 + Math.cos(rayAngleRad) * RAY_LENGTH;
 			const yFar = y1 + Math.sin(rayAngleRad) * RAY_LENGTH;
 
@@ -456,55 +514,20 @@
 			const dashLenRand = pseudoRandom(i + 1, 200);
 			const dashArray = isDashed ? `${dashLen} ${dashLen * (1 + dashLenRand * 0.6)}` : undefined;
 
-			lines.push({
-				id: i,
-				x1,
-				y1,
-				x2,
-				y2,
-				xFar,
-				yFar,
-				dashArray
-			});
-
+			lines.push({ id: i, x1, y1, x2, y2, xFar, yFar, dashArray });
 			accumulatedWeight += weights[i + 1];
 		}
 
 		return lines;
 	}
 
-	// 1. Bottom-Left Corner Rays
 	const rayBottomLeft = $derived(generateCornerRays('burstBottomLeft', params.burstBottomLeft, 2, 83, false));
-
-	// 2. Bottom-Right Corner Rays
 	const rayBottomRight = $derived(generateCornerRays('burstBottomRight', params.burstBottomRight, 97, 178, false));
-
-	// 3. Top-Left Corner Rays
 	const rayTopLeft = $derived(generateCornerRays('burstTopLeft', params.burstTopLeft, 2, 83, true));
-
-	// 4. Top-Right Corner Rays
 	const rayTopRight = $derived(generateCornerRays('burstTopRight', params.burstTopRight, 97, 178, true));
 
-	// Helper function to build SVG arc path string from startAngleDeg to endAngleDeg
-	function describeArc(cx: number, cy: number, r: number, startAngleDeg: number, endAngleDeg: number) {
-		const a1 = (startAngleDeg * Math.PI) / 180;
-		const a2 = (endAngleDeg * Math.PI) / 180;
-
-		const x1 = cx + r * Math.cos(a1);
-		const y1 = cy + r * Math.sin(a1);
-		const x2 = cx + r * Math.cos(a2);
-		const y2 = cy + r * Math.sin(a2);
-
-		const angleDiff = (endAngleDeg - startAngleDeg + 360) % 360;
-		const largeArcFlag = angleDiff > 180 ? 1 : 0;
-
-		return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${largeArcFlag} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
-	}
-
-	// Derived array of PERFECT circles with INDEPENDENT per-circle positions and radii
 	const circleList = $derived.by(() => {
 		if (!params.randomCircles || !params.randomCircles.show || params.randomCircles.count <= 0) return [];
-
 		const count = params.randomCircles.count;
 		const minR = params.randomCircles.minRadius;
 		const maxR = params.randomCircles.maxRadius;
@@ -522,7 +545,6 @@
 			const cxPct = 8 + pseudoRandom(i + 1, 10) * 84;
 			const cyPct = 8 + pseudoRandom(i + 1, 20) * 84;
 			const baseR = minR + pseudoRandom(i + 1, 30) * Math.max(maxR - minR, 1);
-
 			const ov = circleOverrides[i] || { offsetX: 0, offsetY: 0, rDelta: 0 };
 			const r = Math.max(5, baseR + (ov.rDelta || 0));
 
@@ -569,49 +591,24 @@
 		return circles;
 	});
 
-	function hexToRgba(hex: string, alpha: number): string {
-		if (!hex) return `rgba(0, 0, 0, ${alpha})`;
-		let c = hex.replace('#', '');
-		if (c.length === 3) c = c.split('').map((x) => x + x).join('');
-		const num = parseInt(c, 16);
-		if (isNaN(num)) return `rgba(0, 0, 0, ${alpha})`;
-		const r = (num >> 16) & 255;
-		const g = (num >> 8) & 255;
-		const b = num & 255;
-		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-	}
-
-	// --------------------------------------------------------------------------
-	// INTERACTIVE CANVAS UX DRAG, RESIZE, ROTATE & INFINITE UNBOUNDED GRID PAN HANDLERS
-	// --------------------------------------------------------------------------
+	// Transparent Pointer Interaction Handlers
 	let selectedElement = $state<string | null>(null);
 	let hoveredCircleIndex = $state<number | null>(null);
 	let hoveredBurstKey = $state<string | null>(null);
-	let hoveredElement = $state<string | null>(null);
-
 	let isDragging = $state(false);
 	let dragAction = $state<'move' | 'resize' | 'rotate' | 'panGrid' | null>(null);
-
 	let dragStart = { x: 0, y: 0 };
 	let initialValues: Record<string, number> = {};
 
-	function handlePointerDown(
-		e: PointerEvent,
-		elementKey: string,
-		action: 'move' | 'resize' | 'rotate' | 'panGrid' = 'move'
-	) {
+	function handlePointerDown(e: PointerEvent, elementKey: string, action: 'move' | 'resize' | 'rotate' | 'panGrid' = 'move') {
 		e.stopPropagation();
-
 		selectedElement = elementKey;
 		isDragging = true;
 		dragAction = action;
 		dragStart = { x: e.clientX, y: e.clientY };
 
 		if (elementKey === 'canvasGrid') {
-			initialValues = {
-				panX: gridPan.x,
-				panY: gridPan.y
-			};
+			initialValues = { panX: gridPan.x, panY: gridPan.y };
 		} else if (elementKey === 'textBadge') {
 			initialValues = {
 				gridX: params.textBadge.gridX,
@@ -620,61 +617,40 @@
 				spanGridHeight: params.textBadge.spanGridHeight
 			};
 		} else if (elementKey.startsWith('burstline-')) {
-			// Format: burstline-cornerKey-index
 			const parts = elementKey.split('-');
 			const cornerKey = parts[1];
 			const index = parseInt(parts[2], 10);
-
 			if (!burstLineOverrides[cornerKey]) burstLineOverrides[cornerKey] = {};
 			const ov = burstLineOverrides[cornerKey][index] || { originX: 0, originY: 0, targetX: 0, targetY: 0 };
-
-			initialValues = {
-				originX: ov.originX || 0,
-				originY: ov.originY || 0,
-				targetX: ov.targetX || 0,
-				targetY: ov.targetY || 0
-			};
+			initialValues = { originX: ov.originX || 0, originY: ov.originY || 0, targetX: ov.targetX || 0, targetY: ov.targetY || 0 };
 		} else if (elementKey.startsWith('circle-')) {
 			const index = parseInt(elementKey.replace('circle-', ''), 10);
 			const ov = circleOverrides[index] || { offsetX: 0, offsetY: 0, rDelta: 0 };
-			initialValues = {
-				offsetX: ov.offsetX || 0,
-				offsetY: ov.offsetY || 0,
-				rDelta: ov.rDelta || 0
-			};
+			initialValues = { offsetX: ov.offsetX || 0, offsetY: ov.offsetY || 0, rDelta: ov.rDelta || 0 };
 		}
 	}
 
 	function handlePointerMove(e: PointerEvent) {
 		if (!isDragging || !selectedElement) return;
-
 		const dx = e.clientX - dragStart.x;
 		const dy = e.clientY - dragStart.y;
 		const size = params.grid.size || 60;
 
 		if (selectedElement === 'canvasGrid' && dragAction === 'panGrid') {
-			gridPan = {
-				x: initialValues.panX + dx,
-				y: initialValues.panY + dy
-			};
+			gridPan = { x: initialValues.panX + dx, y: initialValues.panY + dy };
 		} else if (selectedElement === 'textBadge') {
 			if (dragAction === 'move') {
 				const dGridX = Math.round(dx / size);
 				const dGridY = Math.round(dy / size);
-
-				// UNBOUNDED INFINITE CANVAS DRAGGING for text badge
 				const newX = initialValues.gridX + dGridX;
 				const newY = initialValues.gridY + dGridY;
-
 				if (newX !== params.textBadge.gridX) dial.setValue('textBadge.gridX', newX);
 				if (newY !== params.textBadge.gridY) dial.setValue('textBadge.gridY', newY);
 			} else if (dragAction === 'resize') {
 				const dSpanW = Math.round(dx / size);
 				const dSpanH = Math.round(dy / size);
-
 				const newW = Math.max(1, initialValues.spanGridWidth + dSpanW);
 				const newH = Math.max(1, initialValues.spanGridHeight + dSpanH);
-
 				if (newW !== params.textBadge.spanGridWidth) dial.setValue('textBadge.spanGridWidth', newW);
 				if (newH !== params.textBadge.spanGridHeight) dial.setValue('textBadge.spanGridHeight', newH);
 			}
@@ -682,15 +658,11 @@
 			const parts = selectedElement.split('-');
 			const cornerKey = parts[1];
 			const index = parseInt(parts[2], 10);
-
 			if (!isNaN(index) && cornerKey) {
 				if (!burstLineOverrides[cornerKey]) burstLineOverrides[cornerKey] = {};
-				if (!burstLineOverrides[cornerKey][index]) {
-					burstLineOverrides[cornerKey][index] = { originX: 0, originY: 0, targetX: 0, targetY: 0 };
-				}
+				if (!burstLineOverrides[cornerKey][index]) burstLineOverrides[cornerKey][index] = { originX: 0, originY: 0, targetX: 0, targetY: 0 };
 
 				if (dragAction === 'move') {
-					// Moving origin moves both origin and target together
 					burstLineOverrides[cornerKey][index] = {
 						...burstLineOverrides[cornerKey][index],
 						originX: initialValues.originX + dx,
@@ -699,7 +671,6 @@
 						targetY: initialValues.targetY + dy
 					};
 				} else if (dragAction === 'rotate') {
-					// Dragging target direction point updates target so line points directly through it!
 					burstLineOverrides[cornerKey][index] = {
 						...burstLineOverrides[cornerKey][index],
 						targetX: initialValues.targetX + dx,
@@ -710,63 +681,42 @@
 		} else if (selectedElement.startsWith('circle-')) {
 			const index = parseInt(selectedElement.replace('circle-', ''), 10);
 			if (!isNaN(index)) {
-				if (!circleOverrides[index]) {
-					circleOverrides[index] = { offsetX: 0, offsetY: 0, rDelta: 0 };
-				}
-
+				if (!circleOverrides[index]) circleOverrides[index] = { offsetX: 0, offsetY: 0, rDelta: 0 };
 				if (dragAction === 'move') {
-					circleOverrides[index] = {
-						...circleOverrides[index],
-						offsetX: initialValues.offsetX + dx,
-						offsetY: initialValues.offsetY + dy
-					};
+					circleOverrides[index] = { ...circleOverrides[index], offsetX: initialValues.offsetX + dx, offsetY: initialValues.offsetY + dy };
 				} else if (dragAction === 'resize') {
-					circleOverrides[index] = {
-						...circleOverrides[index],
-						rDelta: initialValues.rDelta + dx
-					};
+					circleOverrides[index] = { ...circleOverrides[index], rDelta: initialValues.rDelta + dx };
 				}
 			}
 		}
 	}
 
-	function handlePointerUp(e: PointerEvent) {
+	function handlePointerUp() {
 		if (isDragging) {
 			isDragging = false;
 			dragAction = null;
 		}
 	}
-
-	function handleCanvasBackgroundPointerDown(e: PointerEvent) {
-		handlePointerDown(e, 'canvasGrid', 'panGrid');
-		hoveredCircleIndex = null;
-		hoveredBurstKey = null;
-		hoveredElement = null;
-	}
 </script>
 
-<!-- Window Event Listener for global mouse up release -->
 <svelte:window onpointermove={handlePointerMove} onpointerup={handlePointerUp} />
 
 <div
-	role="main"
-	aria-label="Wallpaper canvas"
 	class="wallpaper-container"
 	class:panning={isDragging && dragAction === 'panGrid'}
-	style:background-color={params.colors.bgColor}
-	onpointerdown={handleCanvasBackgroundPointerDown}
+	onpointerdown={(e) => handlePointerDown(e, 'canvasGrid', 'panGrid')}
 >
-	<!-- Shared SVG Interior Mask: Inset by exact half cross length so edge/corner cross arms render 100% UNCLIPPED -->
+	<!-- Shared SVG Mask: Physical Cutout Hole for Text Badge -->
 	<svg width="0" height="0" style="position: absolute;">
 		<defs>
 			<mask id="badge-interior-mask">
 				<rect width="100vw" height="100vh" fill="white" />
-				{#if params.textBadge.show && (params.textBadge.spanGridWidth > 1 || params.textBadge.spanGridHeight > 1)}
+				{#if params.textBadge.show && (params.textBadge.spanGridWidth > 0 || params.textBadge.spanGridHeight > 0)}
 					<rect
-						x={gridPan.x + params.textBadge.gridX * params.grid.size + half}
-						y={gridPan.y + params.textBadge.gridY * params.grid.size + half}
-						width={params.textBadge.spanGridWidth * params.grid.size - 2 * half}
-						height={params.textBadge.spanGridHeight * params.grid.size - 2 * half}
+						x={gridPan.x + params.textBadge.gridX * params.grid.size}
+						y={gridPan.y + params.textBadge.gridY * params.grid.size}
+						width={params.textBadge.spanGridWidth * params.grid.size}
+						height={params.textBadge.spanGridHeight * params.grid.size}
 						fill="black"
 					/>
 				{/if}
@@ -774,9 +724,13 @@
 		</defs>
 	</svg>
 
-	<!-- LAYER 1 (z-index 20): Burst Lines -->
-	{#if params.burstBottomLeft.show}
-		<svg class="layer burst-svg passthrough-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+	<!-- LAYER 0: WebGPU / WebGL GPU SDF Wallpaper Engine Canvas (Includes Background, Grid, Crosses) -->
+	<canvas bind:this={canvasRef} class="gpu-canvas"></canvas>
+
+	<!-- LAYER 1: Full-Screen SVG Vector Layer for Burst Rays & Geometric Circles (HARD-MASKED to cut off at text badge boundary!) -->
+	<svg class="layer full-vector-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" mask="url(#badge-interior-mask)">
+		<!-- 1. Burst Rays Layer -->
+		{#if params.burstBottomLeft.show}
 			<g style="transform: translate({params.burstBottomLeft.originOffset}px, calc(100vh - {params.burstBottomLeft.originOffset}px));">
 				{#each rayBottomLeft as ray}
 					<line
@@ -791,159 +745,43 @@
 					/>
 				{/each}
 			</g>
-		</svg>
-	{/if}
+		{/if}
 
-	{#if params.burstBottomRight.show}
-		<svg class="layer burst-svg passthrough-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-			<g style="transform: translate(calc(100vw - {params.burstBottomRight.originOffset}px), calc(100vh - {params.burstBottomRight.originOffset}px));">
-				{#each rayBottomRight as ray}
-					<line
-						x1={ray.x1}
-						y1={ray.y1}
-						x2={ray.xFar}
-						y2={ray.yFar}
-						stroke={hexToRgba(params.colors.burstColor, params.burstBottomRight.opacity)}
-						stroke-width={params.burstBottomRight.thickness}
-						stroke-dasharray={ray.dashArray}
-						stroke-linecap="round"
-					/>
-				{/each}
-			</g>
-		</svg>
-	{/if}
-
-	{#if params.burstTopLeft.show}
-		<svg class="layer burst-svg passthrough-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-			<g style="transform: translate({params.burstTopLeft.originOffset}px, {params.burstTopLeft.originOffset}px);">
-				{#each rayTopLeft as ray}
-					<line
-						x1={ray.x1}
-						y1={ray.y1}
-						x2={ray.xFar}
-						y2={ray.yFar}
-						stroke={hexToRgba(params.colors.burstColor, params.burstTopLeft.opacity)}
-						stroke-width={params.burstTopLeft.thickness}
-						stroke-dasharray={ray.dashArray}
-						stroke-linecap="round"
-					/>
-				{/each}
-			</g>
-		</svg>
-	{/if}
-
-	{#if params.burstTopRight.show}
-		<svg class="layer burst-svg passthrough-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-			<g style="transform: translate(calc(100vw - {params.burstTopRight.originOffset}px), {params.burstTopRight.originOffset}px);">
-				{#each rayTopRight as ray}
-					<line
-						x1={ray.x1}
-						y1={ray.y1}
-						x2={ray.xFar}
-						y2={ray.yFar}
-						stroke={hexToRgba(params.colors.burstColor, params.burstTopRight.opacity)}
-						stroke-width={params.burstTopRight.thickness}
-						stroke-dasharray={ray.dashArray}
-						stroke-linecap="round"
-					/>
-				{/each}
-			</g>
-		</svg>
-	{/if}
-
-	<!-- LAYER 2 (z-index 30): Random Geometric Circles -->
-	{#if params.randomCircles.show}
-		<svg
-			class="layer circles-svg passthrough-layer"
-			width="100%"
-			height="100%"
-			xmlns="http://www.w3.org/2000/svg"
-		>
+		<!-- 2. Geometric Circles Layer (Solid, Dashed, Hybrid Arcs) -->
+		{#if params.randomCircles.show}
 			{#each circleList as c}
 				<g style="transform: translate(calc({c.cxPct}vw + {c.offsetX}px), calc({c.cyPct}vh + {c.offsetY}px));">
 					{#if c.renderMode === 'solid'}
-						<circle
-							cx="0"
-							cy="0"
-							r={c.r}
-							fill="none"
-							stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)}
-							stroke-width={params.randomCircles.thickness}
-						/>
+						<circle cx="0" cy="0" r={c.r} fill="none" stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)} stroke-width={params.randomCircles.thickness} />
 					{:else if c.renderMode === 'dashed'}
-						<circle
-							cx="0"
-							cy="0"
-							r={c.r}
-							fill="none"
-							stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)}
-							stroke-width={params.randomCircles.thickness}
-							stroke-dasharray={c.dashArray}
-						/>
+						<circle cx="0" cy="0" r={c.r} fill="none" stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)} stroke-width={params.randomCircles.thickness} stroke-dasharray={c.dashArray} />
 					{:else}
-						<path
-							d={c.solidPath}
-							fill="none"
-							stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)}
-							stroke-width={params.randomCircles.thickness}
-							stroke-linecap="round"
-						/>
-						<path
-							d={c.dashedPath}
-							fill="none"
-							stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)}
-							stroke-width={params.randomCircles.thickness}
-							stroke-dasharray={c.dashArray}
-							stroke-linecap="round"
-						/>
+						<path d={c.solidPath} fill="none" stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)} stroke-width={params.randomCircles.thickness} stroke-linecap="round" />
+						<path d={c.dashedPath} fill="none" stroke={hexToRgba(params.colors.circlesColor, params.randomCircles.opacity)} stroke-width={params.randomCircles.thickness} stroke-dasharray={c.dashArray} stroke-linecap="round" />
 					{/if}
 				</g>
 			{/each}
-		</svg>
-	{/if}
+		{/if}
+	</svg>
 
-	<!-- LAYER 3 (z-index 0): Typographic Grid-Snapped Text Badge ("Free Computer.") -->
+	<!-- LAYER 2: Text Badge Interactive Pointer Handle -->
 	{#if params.textBadge.show}
 		<div
-			role="none"
-			class="text-badge-layer interactive-badge"
+			class="text-badge-hit-layer"
 			class:selected={selectedElement === 'textBadge'}
-			class:hovered={hoveredElement === 'textBadge'}
 			style:left="{gridPan.x + params.textBadge.gridX * params.grid.size}px"
 			style:top="{gridPan.y + params.textBadge.gridY * params.grid.size}px"
 			style:width="{params.textBadge.spanGridWidth * params.grid.size}px"
 			style:height="{params.textBadge.spanGridHeight * params.grid.size}px"
-			style:background-color={hexToRgba(params.colors.badgeBgColor, params.textBadge.opacity)}
-			style:color={badgeTextColor}
-			style:border="{params.textBadge.borderWidth}px solid {params.colors.badgeBorderColor}"
-			style:border-radius="0px"
-			style:font-size="{params.textBadge.fontSize}px"
-			style:font-weight={params.textBadge.fontWeight}
-			style:font-family={params.textBadge.fontFamily}
-			style:display="flex"
-			style:align-items="center"
-			style:justify-content={params.textBadge.align}
-			style:padding="0 16px"
-			style:box-sizing="border-box"
-			style:letter-spacing="-0.03em"
-			style:box-shadow="none"
-			style:transition="background-color 0.15s ease, border 0.15s ease"
-			onpointerenter={() => (hoveredElement = 'textBadge')}
-			onpointerleave={() => (hoveredElement = null)}
 			onpointerdown={(e) => handlePointerDown(e, 'textBadge', 'move')}
 		>
-			<span>{params.textBadge.text || 'Free Computer.'}</span>
-
-			<!-- Grid Snap Indicator Label when dragging -->
 			{#if isDragging && selectedElement === 'textBadge'}
 				<div class="grid-coordinate-label">
 					{params.textBadge.gridX}, {params.textBadge.gridY} ({params.textBadge.spanGridWidth}x{params.textBadge.spanGridHeight})
 				</div>
 			{/if}
 
-			<!-- Grid Step Resize Handle at Bottom Right -->
 			<div
-				role="none"
 				class="badge-resize-handle"
 				onpointerdown={(e) => handlePointerDown(e, 'textBadge', 'resize')}
 				title="Drag to resize in grid steps"
@@ -956,222 +794,12 @@
 		</div>
 	{/if}
 
-	<!-- LAYER 4 (z-index 80): Base Grid Lines (Infinite Canvas Panning via gridPan) -->
-	<svg class="layer grid-svg passthrough-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-		<defs>
-			<pattern
-				id="grid-pattern"
-				x={gridPan.x}
-				y={gridPan.y}
-				width={params.grid.size}
-				height={params.grid.size}
-				patternUnits="userSpaceOnUse"
-			>
-				{#if params.grid.show}
-					{#if params.grid.type === 'lines'}
-						<!-- Horizontal Grid Line at top origin y=0 -->
-						<line
-							x1="0"
-							y1="0"
-							x2={params.grid.size}
-							y2="0"
-							stroke={hexToRgba(params.colors.gridColor, params.grid.opacity)}
-							stroke-width={params.grid.lineWidth}
-						/>
-						<!-- Vertical Grid Line at left origin x=0 -->
-						<line
-							x1="0"
-							y1="0"
-							x2="0"
-							y2={params.grid.size}
-							stroke={hexToRgba(params.colors.gridColor, params.grid.opacity)}
-							stroke-width={params.grid.lineWidth}
-						/>
-					{:else if params.grid.type === 'dots'}
-						<circle
-							cx="0"
-							cy="0"
-							r={params.grid.lineWidth}
-							fill={hexToRgba(params.colors.gridColor, params.grid.opacity)}
-						/>
-					{/if}
-				{/if}
-			</pattern>
-		</defs>
-		<rect width="100%" height="100%" fill="url(#grid-pattern)" mask="url(#badge-interior-mask)" />
-	</svg>
-
-	<!-- LAYER 5 (z-index 85): Plus (+) Cross Markers (Infinite Canvas Panning via gridPan) -->
-	{#if params.cross.show}
-		<svg class="layer cross-svg passthrough-layer" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-			<defs>
-				<!-- Shift pattern tile by (gridPan.x - cx, gridPan.y - cy) so (cx, cy) lands EXACTLY on symmetric grid intersections -->
-				<pattern
-					id="cross-pattern"
-					x={gridPan.x - cx}
-					y={gridPan.y - cy}
-					width={params.grid.size}
-					height={params.grid.size}
-					patternUnits="userSpaceOnUse"
-				>
-					<!-- Horizontal arm -->
-					<line
-						x1={cx - half}
-						y1={cy}
-						x2={cx + half}
-						y2={cy}
-						stroke={hexToRgba(params.colors.crossColor, params.cross.opacity)}
-						stroke-width={params.cross.thickness}
-						stroke-linecap="square"
-					/>
-					<!-- Vertical arm -->
-					<line
-						x1={cx}
-						y1={cy - half}
-						x2={cx}
-						y2={cy + half}
-						stroke={hexToRgba(params.colors.crossColor, params.cross.opacity)}
-						stroke-width={params.cross.thickness}
-						stroke-linecap="square"
-					/>
-				</pattern>
-			</defs>
-			<rect width="100%" height="100%" fill="url(#cross-pattern)" mask="url(#badge-interior-mask)" />
-		</svg>
-	{/if}
-
-	<!-- LAYER 6 (z-index 86): Radial Glow -->
-	{#if params.effects.enableRadialGlow}
-		<div
-			class="layer glow passthrough-layer"
-			style:background="radial-gradient(circle at 50% 50%, {hexToRgba(
-				params.colors.glowColor,
-				params.effects.glowOpacity
-			)} 0%, transparent 70%)"
-		></div>
-	{/if}
-
-	<!-- LAYER 7 (z-index 88): Dedicated Cinematic Vignette Layer -->
-	{#if params.vignette.show}
-		<div
-			class="layer vignette-layer passthrough-layer"
-			style:mix-blend-mode={params.vignette.blendMode}
-			style:background="radial-gradient(ellipse at 50% 50%, transparent {params.vignette.coverage}%, {hexToRgba(
-				params.colors.vignetteColor,
-				params.vignette.opacity
-			)} {params.vignette.coverage + params.vignette.softness}%)"
-		></div>
-	{/if}
-
-	<!-- LAYER 8 (z-index 90): Multi-Layered Volumetric Shadow Rays (God Rays) -->
-	{#if params.godRays.show}
-		<div
-			class="layer god-rays passthrough-layer"
-			style:filter="blur({params.godRays.blur}px)"
-			style:mix-blend-mode={params.godRays.blendMode}
-			style:background-image="
-				repeating-linear-gradient(
-					{params.godRays.angle}deg,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 0%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 2.3%,
-					transparent 4.1%,
-					transparent 9.7%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 11.2%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 17.5%,
-					transparent 21.8%,
-					transparent 24.1%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 31.4%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 32.8%,
-					transparent 39.2%,
-					transparent 44.5%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 48.1%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 57.3%,
-					transparent 63.9%,
-					transparent 69.1%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 74.2%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 78.6%,
-					transparent 85.3%,
-					transparent 92.1%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity)} 96.4%,
-					transparent 100%
-				),
-				repeating-linear-gradient(
-					{params.godRays.angle + 7}deg,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 0%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 1.1%,
-					transparent 6.3%,
-					transparent 12.4%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 15.8%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 19.2%,
-					transparent 28.5%,
-					transparent 33.1%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 41.7%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 45.2%,
-					transparent 52.6%,
-					transparent 61.3%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 68.9%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 71.4%,
-					transparent 81.2%,
-					transparent 89.6%,
-					{hexToRgba(params.colors.godRaysColor, params.godRays.opacity * 0.7)} 93.7%,
-					transparent 100%
-				)
-			"
-			style:background-size="{params.godRays.scale}% {params.godRays.scale}%, {params.godRays.scale * 1.47}% {params.godRays.scale * 1.47}%"
-			style:-webkit-mask-image="radial-gradient(ellipse at 0% 0%, black 15%, transparent {params.godRays.maskCoverage}%)"
-			style:mask-image="radial-gradient(ellipse at 0% 0%, black 15%, transparent {params.godRays.maskCoverage}%)"
-		></div>
-	{/if}
-
-	<!-- LAYER 9 (z-index 100): Topmost SVG Film Grain Noise Layer -->
-	{#if params.noise.show}
-		<div
-			class="layer noise-wrapper passthrough-layer"
-			style:mix-blend-mode={params.noise.blendMode}
-			style:opacity={params.noise.opacity}
-		>
-			<svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-				<filter id="grain-filter" x="0%" y="0%" width="100%" height="100%">
-					<feTurbulence
-						type={params.noise.type}
-						baseFrequency={params.noise.frequency}
-						numOctaves={params.noise.octaves}
-						seed={params.noise.seed}
-						stitchTiles="stitch"
-					/>
-					{#if params.noise.monochrome}
-						<feColorMatrix type="saturate" values="0" />
-					{/if}
-					{#if params.noise.invert}
-						<feComponentTransfer>
-							<feFuncR type="linear" slope="-1" intercept="1" />
-							<feFuncG type="linear" slope="-1" intercept="1" />
-							<feFuncB type="linear" slope="-1" intercept="1" />
-						</feComponentTransfer>
-					{/if}
-				</filter>
-				<rect
-					width="100%"
-					height="100%"
-					filter="url(#grain-filter)"
-				/>
-			</svg>
-		</div>
-	{/if}
-
-	<!-- LAYER 10 (z-index 105): TOPMOST INTERACTIVE CIRCLES CANVAS HANDLES -->
+	<!-- LAYER 3: Interactive Circles Pointer Overlay -->
 	{#if params.randomCircles.show}
-		<svg
-			class="layer interactive-circles-overlay"
-			width="100%"
-			height="100%"
-			xmlns="http://www.w3.org/2000/svg"
-		>
+		<svg class="layer interactive-circles-overlay" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
 			{#each circleList as c}
 				<g style="transform: translate(calc({c.cxPct}vw + {c.offsetX}px), calc({c.cyPct}vh + {c.offsetY}px));">
-					<!-- Invisible Wide Hit Ring for Independent Dragging -->
 					<circle
-						role="none"
 						cx="0"
 						cy="0"
 						r={c.r}
@@ -1184,316 +812,25 @@
 						onpointerdown={(e) => handlePointerDown(e, `circle-${c.id}`, 'move')}
 					/>
 
-					<!-- Static Handle Dot & Dashed Guide Line when Hovered or Selected -->
 					{#if hoveredCircleIndex === c.id || selectedElement === `circle-${c.id}`}
-						<circle
-							role="none"
-							cx="0"
-							cy="0"
-							r={c.r + 4}
-							fill="none"
-							stroke="#3b82f6"
-							stroke-width="1.5"
-							stroke-dasharray="4 4"
-							style="pointer-events: none;"
-						/>
-						<!-- Static Circle Resize Handle Dot at right edge -->
-						<circle
-							role="none"
-							cx={c.r + 4}
-							cy="0"
-							r="6.5"
-							fill="#3b82f6"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="circle-resize-handle"
-							onpointerdown={(e) => handlePointerDown(e, `circle-${c.id}`, 'resize')}
-						/>
+						<circle cx="0" cy="0" r={c.r + 4} fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="4 4" style="pointer-events: none;" />
+						<circle cx={c.r + 4} cy="0" r="6.5" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" class="circle-resize-handle" onpointerdown={(e) => handlePointerDown(e, `circle-${c.id}`, 'resize')} />
 					{/if}
 				</g>
 			{/each}
 		</svg>
 	{/if}
 
-	<!-- LAYER 11 (z-index 110): TOPMOST INTERACTIVE BURST LINES CANVAS HANDLES (SWISS TECH BLUE ACCENT + OUTER PADDING ENVELOPE LAYER) -->
+	<!-- LAYER 4: Interactive Burst Lines Pointer Overlay -->
 	<svg class="layer interactive-burst-overlay" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-		<!-- 1. Bottom-Left Corner Vector Burst Lines -->
 		{#if params.burstBottomLeft.show}
 			<g style="transform: translate({params.burstBottomLeft.originOffset}px, calc(100vh - {params.burstBottomLeft.originOffset}px));">
 				{#each rayBottomLeft as ray}
-					<!-- Wide Invisible Hit Line (24px hit width) -->
-					<line
-						role="none"
-						x1={ray.x1}
-						y1={ray.y1}
-						x2={ray.xFar}
-						y2={ray.yFar}
-						stroke="transparent"
-						stroke-width="24"
-						class="burst-line-hit"
-						onpointerenter={() => (hoveredBurstKey = `burstline-burstBottomLeft-${ray.id}`)}
-						onpointerleave={() => (hoveredBurstKey = null)}
-						onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomLeft-${ray.id}`, 'move')}
-					/>
-
-					<!-- Selection & Hover Blue Dashed Line + Outer Padding Envelope Layer + Blue Handles -->
+					<line x1={ray.x1} y1={ray.y1} x2={ray.xFar} y2={ray.yFar} stroke="transparent" stroke-width="24" class="burst-line-hit" onpointerenter={() => (hoveredBurstKey = `burstline-burstBottomLeft-${ray.id}`)} onpointerleave={() => (hoveredBurstKey = null)} onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomLeft-${ray.id}`, 'move')} />
 					{#if hoveredBurstKey === `burstline-burstBottomLeft-${ray.id}` || selectedElement === `burstline-burstBottomLeft-${ray.id}`}
-						<!-- Outer Padding Envelope Glow Layer (8px width, 0.25 opacity) -->
-						<line
-							x1={ray.x1}
-							y1={ray.y1}
-							x2={ray.xFar}
-							y2={ray.yFar}
-							stroke="#3b82f6"
-							stroke-width="8"
-							stroke-opacity="0.25"
-							stroke-linecap="round"
-							style="pointer-events: none;"
-						/>
-						<!-- Inner Blue Dashed Selection Line -->
-						<line
-							x1={ray.x1}
-							y1={ray.y1}
-							x2={ray.xFar}
-							y2={ray.yFar}
-							stroke="#3b82f6"
-							stroke-width="2"
-							stroke-dasharray="4 4"
-							style="pointer-events: none;"
-						/>
-						<!-- Blue Origin Start Dot (Drag to move origin) -->
-						<circle
-							role="none"
-							cx={ray.x1}
-							cy={ray.y1}
-							r="6.5"
-							fill="#3b82f6"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="burst-handle-node"
-							onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomLeft-${ray.id}`, 'move')}
-						/>
-						<!-- Light Blue Target Direction Dot (Line points directly through this target point) -->
-						<circle
-							role="none"
-							cx={ray.x2}
-							cy={ray.y2}
-							r="6"
-							fill="#60a5fa"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="burst-rotate-node"
-							onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomLeft-${ray.id}`, 'rotate')}
-						/>
-						<!-- Dashed line segment to Target Dot -->
-						<line x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="2 2" style="pointer-events: none;" />
-					{/if}
-				{/each}
-			</g>
-		{/if}
-
-		<!-- 2. Bottom-Right Corner Vector Burst Lines -->
-		{#if params.burstBottomRight.show}
-			<g style="transform: translate(calc(100vw - {params.burstBottomRight.originOffset}px), calc(100vh - {params.burstBottomRight.originOffset}px));">
-				{#each rayBottomRight as ray}
-					<!-- Wide Invisible Hit Line -->
-					<line
-						role="none"
-						x1={ray.x1}
-						y1={ray.y1}
-						x2={ray.xFar}
-						y2={ray.yFar}
-						stroke="transparent"
-						stroke-width="24"
-						class="burst-line-hit"
-						onpointerenter={() => (hoveredBurstKey = `burstline-burstBottomRight-${ray.id}`)}
-						onpointerleave={() => (hoveredBurstKey = null)}
-						onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomRight-${ray.id}`, 'move')}
-					/>
-
-					{#if hoveredBurstKey === `burstline-burstBottomRight-${ray.id}` || selectedElement === `burstline-burstBottomRight-${ray.id}`}
-						<line
-							x1={ray.x1}
-							y1={ray.y1}
-							x2={ray.xFar}
-							y2={ray.yFar}
-							stroke="#3b82f6"
-							stroke-width="8"
-							stroke-opacity="0.25"
-							stroke-linecap="round"
-							style="pointer-events: none;"
-						/>
-						<line
-							x1={ray.x1}
-							y1={ray.y1}
-							x2={ray.xFar}
-							y2={ray.yFar}
-							stroke="#3b82f6"
-							stroke-width="2"
-							stroke-dasharray="4 4"
-							style="pointer-events: none;"
-						/>
-						<circle
-							role="none"
-							cx={ray.x1}
-							cy={ray.y1}
-							r="6.5"
-							fill="#3b82f6"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="burst-handle-node"
-							onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomRight-${ray.id}`, 'move')}
-						/>
-						<circle
-							role="none"
-							cx={ray.x2}
-							cy={ray.y2}
-							r="6"
-							fill="#60a5fa"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="burst-rotate-node"
-							onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomRight-${ray.id}`, 'rotate')}
-						/>
-						<line x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="2 2" style="pointer-events: none;" />
-					{/if}
-				{/each}
-			</g>
-		{/if}
-
-		<!-- 3. Top-Left Corner Vector Burst Lines -->
-		{#if params.burstTopLeft.show}
-			<g style="transform: translate({params.burstTopLeft.originOffset}px, {params.burstTopLeft.originOffset}px);">
-				{#each rayTopLeft as ray}
-					<!-- Wide Invisible Hit Line -->
-					<line
-						role="none"
-						x1={ray.x1}
-						y1={ray.y1}
-						x2={ray.xFar}
-						y2={ray.yFar}
-						stroke="transparent"
-						stroke-width="24"
-						class="burst-line-hit"
-						onpointerenter={() => (hoveredBurstKey = `burstline-burstTopLeft-${ray.id}`)}
-						onpointerleave={() => (hoveredBurstKey = null)}
-						onpointerdown={(e) => handlePointerDown(e, `burstline-burstTopLeft-${ray.id}`, 'move')}
-					/>
-
-					{#if hoveredBurstKey === `burstline-burstTopLeft-${ray.id}` || selectedElement === `burstline-burstTopLeft-${ray.id}`}
-						<line
-							x1={ray.x1}
-							y1={ray.y1}
-							x2={ray.xFar}
-							y2={ray.yFar}
-							stroke="#3b82f6"
-							stroke-width="8"
-							stroke-opacity="0.25"
-							stroke-linecap="round"
-							style="pointer-events: none;"
-						/>
-						<line
-							x1={ray.x1}
-							y1={ray.y1}
-							x2={ray.xFar}
-							y2={ray.yFar}
-							stroke="#3b82f6"
-							stroke-width="2"
-							stroke-dasharray="4 4"
-							style="pointer-events: none;"
-						/>
-						<circle
-							role="none"
-							cx={ray.x1}
-							cy={ray.y1}
-							r="6.5"
-							fill="#3b82f6"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="burst-handle-node"
-							onpointerdown={(e) => handlePointerDown(e, `burstline-burstTopLeft-${ray.id}`, 'move')}
-						/>
-						<circle
-							role="none"
-							cx={ray.x2}
-							cy={ray.y2}
-							r="6"
-							fill="#60a5fa"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="burst-rotate-node"
-							onpointerdown={(e) => handlePointerDown(e, `burstline-burstTopLeft-${ray.id}`, 'rotate')}
-						/>
-						<line x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="2 2" style="pointer-events: none;" />
-					{/if}
-				{/each}
-			</g>
-		{/if}
-
-		<!-- 4. Top-Right Corner Vector Burst Lines -->
-		{#if params.burstTopRight.show}
-			<g style="transform: translate(calc(100vw - {params.burstTopRight.originOffset}px), {params.burstTopRight.originOffset}px);">
-				{#each rayTopRight as ray}
-					<!-- Wide Invisible Hit Line -->
-					<line
-						role="none"
-						x1={ray.x1}
-						y1={ray.y1}
-						x2={ray.xFar}
-						y2={ray.yFar}
-						stroke="transparent"
-						stroke-width="24"
-						class="burst-line-hit"
-						onpointerenter={() => (hoveredBurstKey = `burstline-burstTopRight-${ray.id}`)}
-						onpointerleave={() => (hoveredBurstKey = null)}
-						onpointerdown={(e) => handlePointerDown(e, `burstline-burstTopRight-${ray.id}`, 'move')}
-					/>
-
-					{#if hoveredBurstKey === `burstline-burstTopRight-${ray.id}` || selectedElement === `burstline-burstTopRight-${ray.id}`}
-						<line
-							x1={ray.x1}
-							y1={ray.y1}
-							x2={ray.xFar}
-							y2={ray.yFar}
-							stroke="#3b82f6"
-							stroke-width="8"
-							stroke-opacity="0.25"
-							stroke-linecap="round"
-							style="pointer-events: none;"
-						/>
-						<line
-							x1={ray.x1}
-							y1={ray.y1}
-							x2={ray.xFar}
-							y2={ray.yFar}
-							stroke="#3b82f6"
-							stroke-width="2"
-							stroke-dasharray="4 4"
-							style="pointer-events: none;"
-						/>
-						<circle
-							role="none"
-							cx={ray.x1}
-							cy={ray.y1}
-							r="6.5"
-							fill="#3b82f6"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="burst-handle-node"
-							onpointerdown={(e) => handlePointerDown(e, `burstline-burstTopRight-${ray.id}`, 'move')}
-						/>
-						<circle
-							role="none"
-							cx={ray.x2}
-							cy={ray.y2}
-							r="6"
-							fill="#60a5fa"
-							stroke="#ffffff"
-							stroke-width="1.5"
-							class="burst-rotate-node"
-							onpointerdown={(e) => handlePointerDown(e, `burstline-burstTopRight-${ray.id}`, 'rotate')}
-						/>
-						<line x1={ray.x1} y1={ray.y1} x2={ray.x2} y2={ray.y2} stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="2 2" style="pointer-events: none;" />
+						<line x1={ray.x1} y1={ray.y1} x2={ray.xFar} y2={ray.yFar} stroke="#3b82f6" stroke-width="2" stroke-dasharray="4 4" style="pointer-events: none;" />
+						<circle cx={ray.x1} cy={ray.y1} r="6.5" fill="#3b82f6" stroke="#ffffff" stroke-width="1.5" class="burst-handle-node" onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomLeft-${ray.id}`, 'move')} />
+						<circle cx={ray.x2} cy={ray.y2} r="6" fill="#60a5fa" stroke="#ffffff" stroke-width="1.5" class="burst-rotate-node" onpointerdown={(e) => handlePointerDown(e, `burstline-burstBottomLeft-${ray.id}`, 'rotate')} />
 					{/if}
 				{/each}
 			</g>
@@ -1502,33 +839,12 @@
 </div>
 
 <style>
-	/* Universal Reset for Browser Default Focus Rectangle Highlights */
-	:global(svg),
-	:global(svg *),
-	:global(circle),
-	:global(g),
-	:global(path),
-	:global(line) {
-		outline: none !important;
-		-webkit-tap-highlight-color: transparent !important;
-		box-shadow: none !important;
-	}
-
-	:global(circle:focus),
-	:global(circle:focus-visible),
-	:global(g:focus),
-	:global(g:focus-visible) {
-		outline: none !important;
-		border: none !important;
-	}
-
 	.wallpaper-container {
 		position: fixed;
 		inset: 0;
 		width: 100vw;
 		height: 100vh;
 		overflow: hidden;
-		transition: background-color 0.15s ease;
 		user-select: none;
 		cursor: grab;
 	}
@@ -1537,45 +853,45 @@
 		cursor: grabbing;
 	}
 
-	.layer {
+	.gpu-canvas {
 		position: absolute;
 		inset: 0;
-	}
-
-	.passthrough-layer,
-	.burst-svg,
-	.circles-svg,
-	.glow,
-	.grid-svg,
-	.cross-svg,
-	.vignette-layer,
-	.god-rays,
-	.noise-wrapper {
-		pointer-events: none !important;
-	}
-
-	.text-badge-layer {
-		position: absolute;
+		width: 100%;
+		height: 100%;
+		display: block;
 		z-index: 0;
 	}
 
-	.interactive-badge {
-		pointer-events: auto !important;
-		cursor: grab;
-		outline: 1px dashed transparent;
-		transition: outline 0.15s ease, box-shadow 0.15s ease;
+	.layer {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
 	}
 
-	.interactive-badge:hover {
+	.full-vector-layer {
+		z-index: 1;
+	}
+
+	.text-badge-hit-layer {
+		position: absolute;
+		z-index: 10;
+		pointer-events: auto !important;
+		cursor: grab;
+		background: transparent;
+		outline: 1px dashed transparent;
+		transition: outline 0.15s ease;
+	}
+
+	.text-badge-hit-layer:hover {
 		outline: 2px dashed rgba(59, 130, 246, 0.7);
 	}
 
-	.interactive-badge.selected {
+	.text-badge-hit-layer.selected {
 		outline: 2px solid #3b82f6;
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 	}
 
-	.interactive-badge:active {
+	.text-badge-hit-layer:active {
 		cursor: grabbing;
 	}
 
@@ -1594,12 +910,11 @@
 		cursor: se-resize;
 		opacity: 0;
 		transition: opacity 0.15s ease;
-		z-index: 10;
-		pointer-events: auto !important;
+		z-index: 20;
 	}
 
-	.interactive-badge:hover .badge-resize-handle,
-	.interactive-badge.selected .badge-resize-handle {
+	.text-badge-hit-layer:hover .badge-resize-handle,
+	.text-badge-hit-layer.selected .badge-resize-handle {
 		opacity: 1;
 	}
 
@@ -1620,7 +935,6 @@
 
 	.interactive-circles-overlay {
 		z-index: 105;
-		pointer-events: none;
 	}
 
 	.circle-hit-ring {
@@ -1639,7 +953,6 @@
 
 	.interactive-burst-overlay {
 		z-index: 110;
-		pointer-events: none;
 	}
 
 	.burst-line-hit {
